@@ -1,46 +1,87 @@
-const CLOUD_FUNCTION_URL = "https://us-central1-veritas-c2907.cloudfunctions.net/factCheck";
+const DEFAULT_BACKEND_URL = "https://us-central1-veritas-c2907.cloudfunctions.net/factCheck";
 const TOKEN_STORAGE_KEY = "veritasAuth";
-const MENU_ID = "veritas-check";
+const PENDING_CLAIM_STORAGE_KEY = "veritasPendingClaim";
+const MENU_ID = "veritas-check-text";
+const POPUP_WIDTH = 560;
+const POPUP_HEIGHT = 760;
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: MENU_ID,
-    title: "Check text with Veritas AI",
-    contexts: ["selection"],
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: MENU_ID,
+      title: "Check with Veritas AI",
+      contexts: ["selection"],
+    });
   });
 });
 
-async function getStoredToken() {
+async function getAuthContext() {
   const data = await chrome.storage.local.get(TOKEN_STORAGE_KEY);
-  return data[TOKEN_STORAGE_KEY]?.token || null;
+  const authContext = data[TOKEN_STORAGE_KEY] || {};
+
+  return {
+    token: authContext.token || null,
+    backendUrl: authContext.backendUrl || DEFAULT_BACKEND_URL,
+  };
+}
+
+async function openVeritasPopup() {
+  if (chrome.action?.openPopup) {
+    try {
+      await chrome.action.openPopup();
+      return;
+    } catch (error) {
+      console.warn("Could not open the toolbar popup. Falling back to popup window.", error);
+    }
+  }
+
+  try {
+    await chrome.windows.create({
+      url: chrome.runtime.getURL("popup.html"),
+      type: "popup",
+      width: POPUP_WIDTH,
+      height: POPUP_HEIGHT,
+      focused: true,
+    });
+  } catch (error) {
+    console.warn("Could not open Veritas AI popup window.", error);
+  }
 }
 
 async function runFactCheck(text) {
-  const token = await getStoredToken();
+  const selectedText = String(text || "").trim();
 
-  if (!token) {
-    throw new Error("Open Veritas AI and sign in before using context-menu checks.");
+  if (!selectedText) {
+    throw new Error("No selected text was received.");
   }
 
-  const response = await fetch(CLOUD_FUNCTION_URL, {
+  const { token, backendUrl } = await getAuthContext();
+
+  if (!token) {
+    await openVeritasPopup();
+    throw new Error("Please log in via the Veritas AI popup first.");
+  }
+
+  const response = await fetch(backendUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text: selectedText }),
   });
 
   let payload;
   try {
     payload = await response.json();
   } catch (error) {
-    throw new Error("The server returned an invalid JSON response.");
+    throw new Error("The backend returned an invalid JSON response.");
   }
 
   if (!response.ok) {
     if (response.status === 401) {
       await chrome.storage.local.remove(TOKEN_STORAGE_KEY);
+      await openVeritasPopup();
       throw new Error("Your session expired. Open Veritas AI and sign in again.");
     }
 
@@ -55,10 +96,23 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     return;
   }
 
-  chrome.tabs.sendMessage(tab.id, {
-    type: "VERITAS_SELECTION_RECEIVED",
-    text: info.selectionText,
-  });
+  const selectedText = String(info.selectionText || "").trim();
+
+  chrome.storage.local
+    .set({
+      [PENDING_CLAIM_STORAGE_KEY]: {
+        text: selectedText,
+        autoSubmit: true,
+        updatedAt: Date.now(),
+      },
+    })
+    .then(() => openVeritasPopup())
+    .finally(() => {
+      chrome.tabs.sendMessage(tab.id, {
+        type: "VERITAS_SELECTION_RECEIVED",
+        text: selectedText,
+      });
+    });
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -66,7 +120,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  runFactCheck(String(message.text || ""))
+  runFactCheck(message.text)
     .then((result) => sendResponse({ ok: true, result }))
     .catch((error) => sendResponse({ ok: false, error: error.message || "Fact check failed." }));
 

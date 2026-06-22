@@ -10,6 +10,7 @@ import {
 const CLOUD_FUNCTION_URL =
   "https://us-central1-veritas-c2907.cloudfunctions.net/factCheck";
 const TOKEN_STORAGE_KEY = "veritasAuth";
+const PENDING_CLAIM_STORAGE_KEY = "veritasPendingClaim";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAr2nGkJueFNBXT803B4O3i6Mr6I4qeExo",
@@ -211,6 +212,7 @@ async function storeFreshToken(user) {
   await chrome.storage.local.set({
     [TOKEN_STORAGE_KEY]: {
       token,
+      backendUrl: CLOUD_FUNCTION_URL,
       email: user.email || "",
       updatedAt: Date.now(),
     },
@@ -220,6 +222,22 @@ async function storeFreshToken(user) {
 
 async function clearStoredToken() {
   await chrome.storage.local.remove(TOKEN_STORAGE_KEY);
+}
+
+async function applyPendingClaim() {
+  const data = await chrome.storage.local.get(PENDING_CLAIM_STORAGE_KEY);
+  const pendingClaim = data[PENDING_CLAIM_STORAGE_KEY];
+  const text = String(pendingClaim?.text || "").trim();
+
+  if (!text) {
+    return false;
+  }
+
+  claimText.value = text;
+  setVisible(resultBox, false);
+  setResultMode(false);
+  await chrome.storage.local.remove(PENDING_CLAIM_STORAGE_KEY);
+  return Boolean(pendingClaim?.autoSubmit);
 }
 
 async function factCheckText(text) {
@@ -265,6 +283,10 @@ onAuthStateChanged(auth, async (user) => {
     sessionLabel.textContent = user.email || "Signed in";
     try {
       await storeFreshToken(user);
+      const shouldAutoSubmit = await applyPendingClaim();
+      if (shouldAutoSubmit && !factCheckBtn.disabled) {
+        await submitFactCheck();
+      }
     } catch (error) {
       showError("Could not refresh your session token. Please sign in again.");
     }

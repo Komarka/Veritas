@@ -20,9 +20,9 @@
 }
 
 body {
-  width: 430px;
-  min-height: 590px;
-  max-height: 620px;
+  width: 540px;
+  min-height: 650px;
+  max-height: 720px;
   overflow: hidden;
   margin: 0;
   color: var(--text);
@@ -41,7 +41,7 @@ textarea {
 }
 
 .app-shell {
-  max-height: 620px;
+  max-height: 720px;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 14px;
@@ -476,7 +476,7 @@ textarea:focus {
 }
 
 .dashboard-view.has-result {
-  padding-bottom: 72px;
+  padding-bottom: 92px;
 }
 
 .dashboard-hero {
@@ -680,13 +680,15 @@ textarea:focus {
 }
 
 .bottom-nav {
-  position: sticky;
+  position: fixed;
+  right: 14px;
   bottom: 0;
-  z-index: 4;
+  left: 14px;
+  z-index: 20;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
-  margin: -58px 0 0;
+  margin: 0;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 12px 12px 8px 8px;

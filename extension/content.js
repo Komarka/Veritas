@@ -3,12 +3,21 @@ const LOGO_URL = chrome.runtime.getURL("assets/veritas-logo.svg");
 
 function normalizeResult(payload) {
   return {
-    score: Number.isFinite(Number(payload?.score)) ? Math.max(0, Math.min(100, Number(payload.score))) : 0,
-    verdict: typeof payload?.verdict === "string" ? payload.verdict : "Нет вердикта",
-    analysis: typeof payload?.analysis === "string" ? payload.analysis : "Анализ недоступен.",
-    facts: typeof payload?.facts === "string" ? payload.facts : "Факты недоступны.",
+    score: Number.isFinite(Number(payload?.score))
+      ? Math.max(0, Math.min(100, Number(payload.score)))
+      : 0,
+    verdict:
+      typeof payload?.verdict === "string" ? payload.verdict : "No verdict",
+    analysis:
+      typeof payload?.analysis === "string"
+        ? payload.analysis
+        : "Analysis is unavailable.",
+    facts:
+      typeof payload?.facts === "string" ? payload.facts : "Facts are unavailable.",
     sources: Array.isArray(payload?.sources)
-      ? payload.sources.filter((source) => typeof source === "string" && source.startsWith("http"))
+      ? payload.sources.filter(
+          (source) => typeof source === "string" && source.startsWith("http"),
+        )
       : [],
   };
 }
@@ -28,6 +37,11 @@ function createModal() {
 
   shadow.innerHTML = `
     <style>
+      *, *::before, *::after {
+        all: initial;
+        box-sizing: border-box;
+      }
+
       :host {
         all: initial;
         color-scheme: dark;
@@ -41,13 +55,14 @@ function createModal() {
         display: grid;
         place-items: center;
         padding: 24px;
-        background: rgba(0, 0, 0, 0.52);
+        background: rgba(0, 0, 0, 0.56);
         backdrop-filter: blur(8px);
       }
 
       .modal {
-        width: min(430px, calc(100vw - 32px));
-        max-height: min(720px, calc(100vh - 32px));
+        display: block;
+        width: min(460px, calc(100vw - 32px));
+        max-height: min(740px, calc(100vh - 32px));
         overflow: auto;
         border: 1px solid rgba(0, 229, 255, 0.35);
         border-radius: 8px;
@@ -58,8 +73,15 @@ function createModal() {
         box-shadow: 0 30px 80px rgba(0, 0, 0, 0.62), 0 0 38px rgba(0, 229, 255, 0.16);
       }
 
-      .header {
+      .header,
+      .brand,
+      .summary,
+      .score-block,
+      .link-row {
         display: flex;
+      }
+
+      .header {
         align-items: flex-start;
         justify-content: space-between;
         gap: 16px;
@@ -68,7 +90,6 @@ function createModal() {
       }
 
       .brand {
-        display: flex;
         gap: 10px;
         align-items: center;
       }
@@ -81,49 +102,85 @@ function createModal() {
         filter: drop-shadow(0 0 8px rgba(0, 229, 255, 0.28));
       }
 
-      h2, h3, p {
-        margin: 0;
+      .copy-block,
+      .body,
+      .loading,
+      .section,
+      .source-list {
+        display: grid;
       }
 
-      h2 {
-        color: #f4f7fb;
-        font-size: 17px;
-        line-height: 1.2;
+      .copy-block {
+        gap: 3px;
       }
 
-      .eyebrow {
+      .eyebrow,
+      .label,
+      h3 {
+        display: block;
         color: #00e5ff;
         font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
         font-size: 10px;
         font-weight: 800;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      h2,
+      h3,
+      p,
+      .verdict,
+      .score,
+      .score-caption,
+      .claim,
+      a,
+      li,
+      button {
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      h2 {
+        display: block;
+        color: #f4f7fb;
+        font-size: 18px;
+        font-weight: 900;
+        line-height: 1.15;
       }
 
       .close {
+        display: grid;
         width: 32px;
         height: 32px;
+        place-items: center;
         border: 1px solid #30383d;
         border-radius: 6px;
         color: #aeb8c6;
         background: #121617;
         cursor: pointer;
-        font-size: 18px;
+        font-size: 15px;
+        font-weight: 900;
+        line-height: 1;
+      }
+
+      .close:hover {
+        border-color: #00e5ff;
+        color: #ffffff;
       }
 
       .body {
-        display: grid;
         gap: 14px;
         padding: 16px;
       }
 
       .loading {
-        display: grid;
-        gap: 12px;
-        min-height: 180px;
+        gap: 14px;
+        min-height: 190px;
         place-items: center;
         text-align: center;
       }
 
       .spinner {
+        display: block;
         width: 72px;
         height: 72px;
         border: 7px solid #30383d;
@@ -136,18 +193,25 @@ function createModal() {
         to { transform: rotate(360deg); }
       }
 
+      .loading p,
+      .section p,
+      .section li,
+      .claim {
+        display: block;
+        color: #d9e0ea;
+        font-size: 13px;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+
       .claim {
         padding: 12px;
         border: 1px solid #2c3337;
         border-radius: 6px;
-        color: #d9e0ea;
         background: #0d1012;
-        font-size: 13px;
-        line-height: 1.45;
       }
 
       .summary {
-        display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 14px;
@@ -158,21 +222,43 @@ function createModal() {
       }
 
       .verdict {
-        color: #00e5ff;
-        font-size: 18px;
+        display: block;
+        margin-top: 6px;
+        color: #f4f7fb;
+        font-size: 19px;
         font-weight: 900;
+        line-height: 1.2;
+        overflow-wrap: anywhere;
+      }
+
+      .score-block {
+        flex: 0 0 auto;
+        flex-direction: column;
+        align-items: center;
+        gap: 7px;
       }
 
       .score {
         display: grid;
-        width: 78px;
-        height: 78px;
-        flex: 0 0 auto;
+        width: 82px;
+        height: 82px;
         place-items: center;
         border: 7px solid #00e5ff;
         border-radius: 50%;
-        font-size: 24px;
+        color: #ffffff;
+        font-size: 25px;
         font-weight: 900;
+      }
+
+      .score-caption {
+        display: block;
+        width: 96px;
+        color: #cfd6e0;
+        font-size: 10px;
+        font-weight: 800;
+        line-height: 1.2;
+        text-align: center;
+        text-transform: uppercase;
       }
 
       .score-good { border-color: #21d07a; }
@@ -180,6 +266,7 @@ function createModal() {
       .score-bad { border-color: #ff6b6b; }
 
       .section {
+        gap: 8px;
         padding: 14px;
         border: 1px solid #30383d;
         border-radius: 8px;
@@ -187,37 +274,36 @@ function createModal() {
       }
 
       h3 {
-        margin-bottom: 8px;
         color: #b8b5ff;
         font-size: 12px;
-        text-transform: uppercase;
       }
 
-      .section p,
-      .section li {
-        color: #d9e0ea;
-        font-size: 13px;
-        line-height: 1.5;
-      }
-
-      ul {
-        display: grid;
-        gap: 8px;
+      .source-list {
+        gap: 9px;
         padding: 0;
         margin: 0;
         list-style: none;
       }
 
+      .link-row {
+        min-width: 0;
+        align-items: center;
+        gap: 8px;
+      }
+
       a {
         display: block;
-        overflow: hidden;
+        min-width: 0;
         color: #00e5ff;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        cursor: pointer;
+        font-size: 13px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+        text-decoration: underline;
       }
 
       .error {
-        color: #ff6b6b;
+        color: #ff7a7a;
       }
     </style>
     <div class="backdrop">
@@ -225,17 +311,17 @@ function createModal() {
         <header class="header">
           <div class="brand">
             <img class="modal-logo" src="${LOGO_URL}" alt="Veritas AI logo">
-            <div>
+            <div class="copy-block">
               <div class="eyebrow">SYSTEM STATUS: ACTIVE</div>
               <h2>Veritas AI</h2>
             </div>
           </div>
-          <button class="close" type="button" aria-label="Close">×</button>
+          <button class="close" type="button" aria-label="Close">X</button>
         </header>
         <div class="body" id="content">
           <div class="loading">
             <div class="spinner" aria-hidden="true"></div>
-            <p>🛡️ Veritas AI is scanning the web...</p>
+            <p>Veritas AI is scanning the web...</p>
           </div>
         </div>
       </article>
@@ -258,7 +344,13 @@ function renderResult(shadow, selectedText, payload) {
   const content = shadow.querySelector("#content");
   const sources = result.sources.length
     ? result.sources
-        .map((source) => `<li><a href="${escapeAttribute(source)}" target="_blank" rel="noreferrer">${escapeHtml(source)}</a></li>`)
+        .map(
+          (source) => `
+            <li class="link-row">
+              <a href="${escapeAttribute(source)}" target="_blank" rel="noreferrer">${escapeHtml(source)}</a>
+            </li>
+          `,
+        )
         .join("")
     : "<li>No verified source URLs returned.</li>";
 
@@ -266,13 +358,16 @@ function renderResult(shadow, selectedText, payload) {
     <div class="claim">${escapeHtml(selectedText)}</div>
     <section class="summary">
       <div>
-        <div class="eyebrow">VERDICT</div>
+        <div class="label">Verdict</div>
         <p class="verdict">${escapeHtml(result.verdict)}</p>
       </div>
-      <div class="score ${scoreClass(result.score)}">${Math.round(result.score)}</div>
+      <div class="score-block">
+        <div class="score ${scoreClass(result.score)}">${Math.round(result.score)}</div>
+        <div class="score-caption">Bias/Lie Score</div>
+      </div>
     </section>
     <section class="section">
-      <h3>Analysis</h3>
+      <h3>Comprehensive Analysis</h3>
       <p>${escapeHtml(result.analysis)}</p>
     </section>
     <section class="section">
@@ -280,8 +375,8 @@ function renderResult(shadow, selectedText, payload) {
       <p>${escapeHtml(result.facts)}</p>
     </section>
     <section class="section">
-      <h3>Sources</h3>
-      <ul>${sources}</ul>
+      <h3>Sources &amp; Fact-checking Links</h3>
+      <ul class="source-list">${sources}</ul>
     </section>
   `;
 }
@@ -334,7 +429,10 @@ chrome.runtime.onMessage.addListener((message) => {
       }
 
       if (!response?.ok) {
-        renderError(shadow, response?.error || "Unable to complete the fact check.");
+        renderError(
+          shadow,
+          response?.error || "Unable to complete the fact check.",
+        );
         return;
       }
 
