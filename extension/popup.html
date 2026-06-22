@@ -69,41 +69,103 @@
         </div>
       </section>
 
-      <section id="dashboard-view" class="panel hidden">
-        <div class="status-line active">SYSTEM STATUS: ACTIVE</div>
-        <h2>Intelligence Overview</h2>
+      <section id="dashboard-view" class="dashboard-view hidden">
+        <section class="dashboard-hero">
+          <div>
+            <p class="status-line active">SYSTEM STATUS: ACTIVE</p>
+            <h2>Intelligence Overview</h2>
+          </div>
+        </section>
 
-        <label class="claim-label" for="claim-text">Claim or text fragment</label>
-        <textarea id="claim-text" rows="7" placeholder="Paste a claim, post, article fragment, or suspicious statement..."></textarea>
-
-        <button id="fact-check-btn" class="primary-btn wide" type="button">Shield Fact-Check</button>
-
-        <section id="result-box" class="result-card hidden" aria-live="polite">
-          <div class="result-head">
-            <div>
-              <span id="verdict" class="verdict">Pending</span>
-              <p class="muted">Truth score</p>
+        <section class="dash-card score-card result-only hidden" aria-label="Truth score overview">
+          <div class="score-gauge">
+            <svg viewBox="0 0 120 120" aria-hidden="true">
+              <circle class="score-track" cx="60" cy="60" r="50"></circle>
+              <circle id="score-ring" class="score-ring" cx="60" cy="60" r="50"></circle>
+            </svg>
+            <div class="score-center">
+              <span id="score">--</span>
+              <small>TRUTH SCORE</small>
             </div>
-            <div id="score" class="score-badge">0</div>
+          </div>
+          <div class="confidence-chip" id="confidence-chip">Awaiting Analysis</div>
+          <div class="metric-grid">
+            <div class="metric-card">
+              <span>Sources</span>
+              <strong id="source-count">0</strong>
+            </div>
+            <div class="metric-card">
+              <span>Risks</span>
+              <strong id="risk-count">0</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="dash-card quick-card">
+          <div class="section-heading">
+            <h3>Quick Analysis</h3>
+            <span>Manual Claim</span>
+          </div>
+          <label class="claim-label" for="claim-text">Claim or text fragment</label>
+          <textarea id="claim-text" rows="5" placeholder="Paste a claim, post, article fragment, or suspicious statement..."></textarea>
+          <button id="fact-check-btn" class="primary-btn wide" type="button">
+            <span>Scan Claim</span>
+            <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12l2 2 4-5M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6l7-3z"/></svg>
+          </button>
+        </section>
+
+        <section id="result-box" class="dash-card result-card hidden" aria-live="polite">
+          <div class="section-heading">
+            <h3>Intelligence Detail</h3>
+            <span id="verdict">Pending</span>
           </div>
 
           <div class="result-section">
-            <h3>Analysis</h3>
+            <h3>Analysis Report</h3>
             <p id="analysis"></p>
           </div>
 
           <div class="result-section">
-            <h3>Facts</h3>
+            <h3>Verified Facts</h3>
             <p id="facts"></p>
           </div>
 
           <div class="result-section">
-            <h3>Sources</h3>
-            <ul id="sources"></ul>
+            <h3>Verified Sources</h3>
+            <ul id="sources" class="source-list"></ul>
           </div>
         </section>
-      </section>
-    </main>
+
+        <section class="dash-card processing-card result-only hidden">
+          <h3>Latency & Processing</h3>
+          <div class="bar-graph" aria-hidden="true">
+            <span style="height:60%"></span>
+            <span style="height:42%"></span>
+            <span style="height:74%"></span>
+            <span style="height:50%"></span>
+            <span class="active-bar" style="height:86%"></span>
+            <span style="height:38%"></span>
+            <span style="height:58%"></span>
+            <span style="height:90%"></span>
+            <span style="height:66%"></span>
+            <span style="height:44%"></span>
+            <span style="height:30%"></span>
+            <span style="height:70%"></span>
+          </div>
+          <div class="graph-labels">
+            <span>00:00 UTC</span>
+            <span>Peak Activity</span>
+            <span>Current</span>
+          </div>
+        </section>
+
+        <nav class="bottom-nav result-only hidden" aria-label="Dashboard navigation">
+          <button class="active" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l2 2 4-5M5 5h14v14H5z"/></svg><span>Check</span></button>
+          <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V5h14v14M8 16v-4M12 16V8M16 16v-6"/></svg><span>Sources</span></button>
+          <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><span>Alerts</span></button>
+          <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg><span>Account</span></button>
+        </nav>
+      </section>    </main>
 
     <script src="popup.bundle.js"></script>
   </body>

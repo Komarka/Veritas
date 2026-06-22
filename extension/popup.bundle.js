@@ -7480,11 +7480,22 @@
   var resultBox = document.querySelector("#result-box");
   var verdictEl = document.querySelector("#verdict");
   var scoreEl = document.querySelector("#score");
+  var scoreRing = document.querySelector("#score-ring");
+  var confidenceChip = document.querySelector("#confidence-chip");
+  var sourceCountEl = document.querySelector("#source-count");
+  var riskCountEl = document.querySelector("#risk-count");
   var analysisEl = document.querySelector("#analysis");
   var factsEl = document.querySelector("#facts");
   var sourcesEl = document.querySelector("#sources");
+  var resultOnlyEls = document.querySelectorAll(".result-only");
   function setVisible(element, isVisible) {
     element.classList.toggle("hidden", !isVisible);
+  }
+  function setResultMode(hasResult) {
+    dashboardView.classList.toggle("has-result", hasResult);
+    for (const element of resultOnlyEls) {
+      setVisible(element, hasResult);
+    }
   }
   function showError(message = "") {
     errorBannerText.textContent = message;
@@ -7504,7 +7515,7 @@
   function setFactCheckBusy(isBusy) {
     factCheckBtn.disabled = isBusy;
     claimText.disabled = isBusy;
-    factCheckBtn.textContent = isBusy ? "Scanning..." : "Shield Fact-Check";
+    factCheckBtn.innerHTML = isBusy ? "<span>Scanning...</span>" : '<span>Scan Claim</span><svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12l2 2 4-5M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6l7-3z"/></svg>';
     setLoading(isBusy, "Veritas AI is scanning the web...");
   }
   function friendlyAuthError(error, fallback) {
@@ -7542,6 +7553,20 @@
     if (score >= 40) return "#ffad42";
     return "#ff6b6b";
   }
+  function confidenceLabel(score) {
+    if (score >= 70) return "High Confidence Rating";
+    if (score >= 40) return "Moderate Caution";
+    return "High Risk Alert";
+  }
+  function riskCount(score) {
+    return Math.max(1, Math.ceil((100 - score) / 10));
+  }
+  function updateScoreGauge(score, color) {
+    const circumference = 314;
+    const offset = circumference - circumference * score / 100;
+    scoreRing.style.stroke = color;
+    scoreRing.style.strokeDashoffset = String(offset);
+  }
   function normalizeResult(payload) {
     return {
       score: Number.isFinite(Number(payload?.score)) ? Math.max(0, Math.min(100, Number(payload.score))) : 0,
@@ -7558,7 +7583,13 @@
     const color = scoreColor(result.score);
     verdictEl.textContent = result.verdict;
     scoreEl.textContent = String(Math.round(result.score));
-    scoreEl.style.borderColor = color;
+    updateScoreGauge(result.score, color);
+    confidenceChip.textContent = confidenceLabel(result.score);
+    confidenceChip.style.color = color;
+    confidenceChip.style.borderColor = color;
+    sourceCountEl.textContent = String(result.sources.length);
+    riskCountEl.textContent = String(riskCount(result.score));
+    riskCountEl.style.color = color;
     analysisEl.textContent = result.analysis;
     factsEl.textContent = result.facts;
     sourcesEl.replaceChildren();
@@ -7579,6 +7610,7 @@
       }
     }
     setVisible(resultBox, true);
+    setResultMode(true);
   }
   async function storeFreshToken(user) {
     const token = await user.getIdToken(true);
@@ -7624,6 +7656,7 @@
     setVisible(authView, !user);
     setVisible(dashboardView, Boolean(user));
     setVisible(logoutBtn, Boolean(user));
+    setResultMode(false);
     showError();
     setLoading(false);
     if (user) {
@@ -7675,7 +7708,7 @@
       setAuthBusy(false);
     }
   });
-  logoutBtn.addEventListener("click", async () => {
+  async function handleSignOut() {
     showError();
     setLoading(true, "Signing out...");
     try {
@@ -7686,11 +7719,13 @@
     } finally {
       setLoading(false);
     }
-  });
-  factCheckBtn.addEventListener("click", async () => {
+  }
+  logoutBtn.addEventListener("click", handleSignOut);
+  async function submitFactCheck() {
     const text = claimText.value.trim();
     showError();
     setVisible(resultBox, false);
+    setResultMode(false);
     if (!text) {
       showError("Enter text to analyze.");
       return;
@@ -7703,6 +7738,16 @@
       showError(error.message || "Network failure. Try again.");
     } finally {
       setFactCheckBusy(false);
+    }
+  }
+  factCheckBtn.addEventListener("click", submitFactCheck);
+  claimText.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.shiftKey || event.isComposing) {
+      return;
+    }
+    event.preventDefault();
+    if (!factCheckBtn.disabled) {
+      submitFactCheck();
     }
   });
 })();
