@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Firebase / local logs
+firebase-debug.log
+*.log
+
+# Local temp/extracted assets
+.tmp/
+
+# Environment and secrets
+.env
+.env.*
+*.local
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

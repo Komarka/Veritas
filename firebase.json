@@ -1,0 +1,8 @@
+{
+  "functions": [
+    {
+      "source": "backend/functions",
+      "codebase": "default"
+    }
+  ]
+}

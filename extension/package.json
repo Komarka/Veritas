@@ -1,0 +1,16 @@
+{
+  "name": "veritas-ai-extension",
+  "version": "1.0.0",
+  "description": "Chrome extension frontend for Veritas AI",
+  "private": true,
+  "main": "background.js",
+  "scripts": {
+    "build": "esbuild popup.js --bundle --format=iife --target=chrome114 --outfile=popup.bundle.js",
+    "check": "node --check background.js && node --check content.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.1",
+    "firebase": "^10.14.1",
+    "sharp": "^0.35.2"
+  }
+}

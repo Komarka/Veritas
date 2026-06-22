@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Veritas AI</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <img class="brand-logo" src="assets/veritas-logo.svg" alt="Veritas AI logo">
+          <div>
+            <h1>Veritas AI</h1>
+            <p id="session-label">Secure fact-checking</p>
+          </div>
+        </div>
+        <button id="logout-btn" class="icon-btn hidden" type="button" title="Sign out">Exit</button>
+      </header>
+
+      <div id="error-banner" class="banner error-banner hidden" role="alert">
+        <span class="banner-mark">!</span>
+        <p id="error-banner-text"></p>
+      </div>
+
+      <div id="loading-banner" class="banner loading-banner hidden" aria-live="polite">
+        <span class="loader" aria-hidden="true"></span>
+        <p id="loading-banner-text">Loading...</p>
+      </div>
+
+      <section id="auth-view" class="panel">
+        <div class="status-line">SYSTEM STATUS: AUTH REQUIRED</div>
+        <h2>Account Access</h2>
+        <p class="muted">Sign in to verify claims with grounded AI search.</p>
+
+        <form id="auth-form" class="form">
+          <label>
+            Email
+            <input id="email" type="email" autocomplete="email" required>
+          </label>
+          <label>
+            Password
+            <input id="password" type="password" autocomplete="current-password" minlength="6" required>
+          </label>
+          <div class="button-row">
+            <button id="login-btn" class="primary-btn" type="submit">Sign In</button>
+            <button id="register-btn" class="ghost-btn" type="button">Create Account</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="dashboard-view" class="panel hidden">
+        <div class="status-line active">SYSTEM STATUS: ACTIVE</div>
+        <h2>Intelligence Overview</h2>
+
+        <label class="claim-label" for="claim-text">Claim or text fragment</label>
+        <textarea id="claim-text" rows="7" placeholder="Paste a claim, post, article fragment, or suspicious statement..."></textarea>
+
+        <button id="fact-check-btn" class="primary-btn wide" type="button">Shield Fact-Check</button>
+
+        <section id="result-box" class="result-card hidden" aria-live="polite">
+          <div class="result-head">
+            <div>
+              <span id="verdict" class="verdict">Pending</span>
+              <p class="muted">Truth score</p>
+            </div>
+            <div id="score" class="score-badge">0</div>
+          </div>
+
+          <div class="result-section">
+            <h3>Analysis</h3>
+            <p id="analysis"></p>
+          </div>
+
+          <div class="result-section">
+            <h3>Facts</h3>
+            <p id="facts"></p>
+          </div>
+
+          <div class="result-section">
+            <h3>Sources</h3>
+            <ul id="sources"></ul>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="popup.bundle.js"></script>
+  </body>
+</html>

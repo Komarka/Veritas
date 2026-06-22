@@ -1,0 +1,12 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Veritas AI logo">
+  <defs>
+    <linearGradient id="shieldBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00E5FF"/>
+      <stop offset="100%" stop-color="#1A237E"/>
+    </linearGradient>
+  </defs>
+  <path d="M100 20 L40 45 V90 C40 140 70 180 100 190 C130 180 160 140 160 90 V45 L100 20Z" fill="#121414" stroke="url(#shieldBorder)" stroke-width="8"/>
+  <path d="M70 70 L100 135 L130 70" stroke="#00E5FF" stroke-width="12" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="70" cy="70" r="4" fill="#00E5FF"/>
+  <circle cx="130" cy="70" r="4" fill="#00E5FF"/>
+</svg>
