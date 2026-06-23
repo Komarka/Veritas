@@ -1,56 +1,56 @@
 {
-    "manifest_version":  3,
-    "name":  "Veritas AI",
-    "description":  "AI-powered fact-checking for selected text and manual claims.",
-    "version":  "1.0.0",
-    "permissions":  [
-                        "activeTab",
-                        "scripting",
-                        "contextMenus",
-                        "storage"
-                    ],
-    "host_permissions":  [
-                             "https://us-central1-veritas-c2907.cloudfunctions.net/*",
-                             "\u003call_urls\u003e"
-                         ],
-    "background":  {
-                       "service_worker":  "background.js"
-                   },
-    "action":  {
-                   "default_title":  "Veritas AI",
-                   "default_popup":  "popup.html",
-                   "default_icon":  {
-                                        "16":  "assets/icon-16.png",
-                                        "32":  "assets/icon-32.png",
-                                        "48":  "assets/icon-48.png",
-                                        "128":  "assets/icon-128.png"
-                                    }
-               },
-    "content_scripts":  [
-                            {
-                                "matches":  [
-                                                "\u003call_urls\u003e"
-                                            ],
-                                "js":  [
-                                           "content.js"
-                                       ],
-                                "run_at":  "document_idle"
-                            }
-                        ],
-    "icons":  {
-                  "16":  "assets/icon-16.png",
-                  "32":  "assets/icon-32.png",
-                  "48":  "assets/icon-48.png",
-                  "128":  "assets/icon-128.png"
-              },
-    "web_accessible_resources":  [
-                                     {
-                                         "resources":  [
-                                                           "assets/veritas-logo.svg"
-                                                       ],
-                                         "matches":  [
-                                                         "\u003call_urls\u003e"
-                                                     ]
-                                     }
-                                 ]
+  "manifest_version": 3,
+  "name": "Veritas AI",
+  "description": "AI-powered fact-checking for selected text and manual claims.",
+  "version": "1.0.0",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "contextMenus",
+    "storage",
+    "identity"
+  ],
+  "host_permissions": [
+    "https://us-central1-veritas-c2907.cloudfunctions.net/*",
+    "\u003call_urls\u003e"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Veritas AI",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "assets/icon-16.png",
+      "32": "assets/icon-32.png",
+      "48": "assets/icon-48.png",
+      "128": "assets/icon-128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["\u003call_urls\u003e"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "assets/icon-16.png",
+    "32": "assets/icon-32.png",
+    "48": "assets/icon-48.png",
+    "128": "assets/icon-128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/veritas-logo.svg"],
+      "matches": ["\u003call_urls\u003e"]
+    }
+  ],
+  "oauth2": {
+    "client_id": "747739833868-ns1c0d9d1tlm32dcfuvnmv4amipo4pro.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile"
+    ]
+  }
 }

@@ -1,6 +1,7 @@
 const DEFAULT_BACKEND_URL =
   "https://us-central1-veritas-c2907.cloudfunctions.net/factCheck";
 const TOKEN_STORAGE_KEY = "veritasAuth";
+const LEGACY_TOKEN_STORAGE_KEY = "veritas_token";
 const PENDING_CLAIM_STORAGE_KEY = "veritasPendingClaim";
 const PENDING_IMAGE_STORAGE_KEY = "veritasPendingImage";
 const TEXT_MENU_ID = "veritas-check-text";
@@ -24,11 +25,14 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 async function getAuthContext() {
-  const data = await chrome.storage.local.get(TOKEN_STORAGE_KEY);
+  const data = await chrome.storage.local.get([
+    TOKEN_STORAGE_KEY,
+    LEGACY_TOKEN_STORAGE_KEY,
+  ]);
   const authContext = data[TOKEN_STORAGE_KEY] || {};
 
   return {
-    token: authContext.token || null,
+    token: authContext.token || data[LEGACY_TOKEN_STORAGE_KEY] || null,
     backendUrl: authContext.backendUrl || DEFAULT_BACKEND_URL,
   };
 }
@@ -94,7 +98,7 @@ async function runFactCheck(text) {
 
   if (!response.ok) {
     if (response.status === 401) {
-      await chrome.storage.local.remove(TOKEN_STORAGE_KEY);
+      await chrome.storage.local.remove([TOKEN_STORAGE_KEY, LEGACY_TOKEN_STORAGE_KEY]);
       await openVeritasPopup();
       throw new Error(
         "Your session expired. Open Veritas AI and sign in again.",
@@ -169,7 +173,7 @@ async function streamFactCheck(text, port) {
     const payload = await readJsonResponse(response);
 
     if (response.status === 401) {
-      await chrome.storage.local.remove(TOKEN_STORAGE_KEY);
+      await chrome.storage.local.remove([TOKEN_STORAGE_KEY, LEGACY_TOKEN_STORAGE_KEY]);
       await openVeritasPopup();
       port.postMessage({
         type: "VERITAS_STREAM_ERROR",

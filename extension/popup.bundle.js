@@ -7451,6 +7451,7 @@
   // popup.js
   var CLOUD_FUNCTION_URL = "https://us-central1-veritas-c2907.cloudfunctions.net/factCheck";
   var TOKEN_STORAGE_KEY = "veritasAuth";
+  var LEGACY_TOKEN_STORAGE_KEY = "veritas_token";
   var PENDING_CLAIM_STORAGE_KEY = "veritasPendingClaim";
   var PENDING_IMAGE_STORAGE_KEY = "veritasPendingImage";
   var MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -7479,6 +7480,7 @@
   var passwordInput = document.querySelector("#password");
   var loginBtn = document.querySelector("#login-btn");
   var registerBtn = document.querySelector("#register-btn");
+  var googleLoginBtn = document.querySelector("#google-login-btn");
   var logoutBtn = document.querySelector("#logout-btn");
   var errorBanner = document.querySelector("#error-banner");
   var errorBannerText = document.querySelector("#error-banner-text");
@@ -7698,6 +7700,7 @@
   function setAuthBusy(isBusy, message = "Authenticating...") {
     loginBtn.disabled = isBusy;
     registerBtn.disabled = isBusy;
+    googleLoginBtn.disabled = isBusy;
     emailInput.disabled = isBusy;
     passwordInput.disabled = isBusy;
     setLoading(isBusy, message);
@@ -8001,6 +8004,7 @@
   async function storeFreshToken(user) {
     const token = await user.getIdToken(true);
     await chrome.storage.local.set({
+      [LEGACY_TOKEN_STORAGE_KEY]: token,
       [TOKEN_STORAGE_KEY]: {
         token,
         backendUrl: CLOUD_FUNCTION_URL,
@@ -8011,7 +8015,7 @@
     return token;
   }
   async function clearStoredToken() {
-    await chrome.storage.local.remove(TOKEN_STORAGE_KEY);
+    await chrome.storage.local.remove([TOKEN_STORAGE_KEY, LEGACY_TOKEN_STORAGE_KEY]);
   }
   async function applyPendingClaim() {
     const data = await chrome.storage.local.get(PENDING_CLAIM_STORAGE_KEY);
@@ -8204,6 +8208,52 @@
       setAuthBusy(false);
     }
   });
+  function clearCachedGoogleTokens() {
+    return new Promise((resolve) => {
+      chrome.identity.clearAllCachedAuthTokens(() => resolve());
+    });
+  }
+  function removeCachedGoogleToken(token) {
+    return new Promise((resolve) => {
+      if (!token) {
+        resolve();
+        return;
+      }
+      chrome.identity.removeCachedAuthToken({ token }, () => resolve());
+    });
+  }
+  async function getGoogleAuthToken() {
+    await clearCachedGoogleTokens();
+    return new Promise((resolve, reject) => {
+      chrome.identity.getAuthToken({ interactive: true }, (token) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message || "Google sign-in was cancelled."));
+          return;
+        }
+        if (!token) {
+          reject(new Error("Google did not return an auth token."));
+          return;
+        }
+        resolve(token);
+      });
+    });
+  }
+  async function handleGoogleSignIn() {
+    showError();
+    setAuthBusy(true, "Opening Google sign-in...");
+    try {
+      const googleToken = await getGoogleAuthToken();
+      const credential = GoogleAuthProvider.credential(null, googleToken);
+      await signInWithCredential(auth, credential);
+      await removeCachedGoogleToken(googleToken);
+    } catch (error) {
+      showError(error.message || "Could not sign in with Google.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+  googleLoginBtn.addEventListener("click", handleGoogleSignIn);
   registerBtn.addEventListener("click", async () => {
     showError();
     if (!requireValidAuthForm()) {

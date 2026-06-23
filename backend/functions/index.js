@@ -303,7 +303,6 @@ async function generateFactCheck(text, progress) {
           googleSearch: {},
         },
       ],
-      responseMimeType: "application/json",
       systemInstruction: TEXT_SYSTEM_INSTRUCTION,
     },
   });
@@ -354,7 +353,6 @@ async function generateImageFactCheck(imageInput, progress) {
           googleSearch: {},
         },
       ],
-      responseMimeType: "application/json",
       systemInstruction: IMAGE_SYSTEM_INSTRUCTION,
     },
   });
