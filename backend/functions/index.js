@@ -8,6 +8,7 @@ const logger = require("firebase-functions/logger");
 
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 const GEMINI_MODEL = "gemini-2.5-flash";
+const MAX_GEMINI_ATTEMPTS = 3;
 
 const USER_PROMPT_PREFIX =
   "Fact-check and analyze the following claim. Return verdict, analysis, and facts in the same primary language as the claim. If the claim mixes languages, use the language used most in the claim:";
@@ -123,12 +124,147 @@ function normalizeFactCheckResult(rawText, groundingUrls) {
   };
 }
 
+function wantsEventStream(req) {
+  return String(req.get("accept") || "").includes("text/event-stream");
+}
+
+function startEventStream(res) {
+  res.status(200);
+  res.set({
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  res.flushHeaders?.();
+}
+
+function sendStreamEvent(res, payload) {
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function errorText(error) {
+  return `${error?.message || ""} ${error?.stack || ""}`;
+}
+
+function isQuotaError(error) {
+  const raw = errorText(error);
+  return raw.includes("429") || raw.includes("RESOURCE_EXHAUSTED");
+}
+
+function isModelOverloadedError(error) {
+  const raw = errorText(error);
+  return raw.includes("503") || raw.includes("UNAVAILABLE");
+}
+
+function publicErrorMessage(error) {
+  if (isQuotaError(error)) {
+    return "Gemini quota exceeded. Try again later.";
+  }
+
+  if (isModelOverloadedError(error)) {
+    return "Gemini is temporarily overloaded. Try again in a moment.";
+  }
+
+  return "ÐžÑˆÐ¸Ð±ÐºÐ° Ð²ÐµÑ€Ð¸Ñ„Ð¸ÐºÐ°Ñ†Ð¸Ð¸";
+}
+
+function publicErrorStatus(error) {
+  if (isQuotaError(error)) {
+    return 429;
+  }
+
+  if (isModelOverloadedError(error)) {
+    return 503;
+  }
+
+  return 500;
+}
+
+function wait(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function generateFactCheck(text, progress) {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY secret is not configured.");
+  }
+
+  const ai = new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+  });
+
+  progress?.("searching");
+
+  let response;
+  let lastError;
+
+  for (let attempt = 1; attempt <= MAX_GEMINI_ATTEMPTS; attempt += 1) {
+    try {
+      response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `${USER_PROMPT_PREFIX}\n\n${text}`,
+              },
+            ],
+          },
+        ],
+        config: {
+          tools: [
+            {
+              googleSearch: {},
+            },
+          ],
+          systemInstruction: SYSTEM_INSTRUCTION,
+        },
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+
+      if (!isModelOverloadedError(error) || attempt === MAX_GEMINI_ATTEMPTS) {
+        throw error;
+      }
+
+      logger.warn("Gemini model overloaded, retrying", {
+        attempt,
+        nextAttempt: attempt + 1,
+        error: error.message,
+      });
+      await wait(900 * attempt);
+    }
+  }
+
+  if (!response) {
+    throw lastError || new Error("Gemini did not return a response.");
+  }
+
+  progress?.("forming_verdict");
+
+  const rawText = response.text;
+
+  if (!rawText) {
+    throw new Error("Gemini returned an empty response.");
+  }
+
+  const groundingUrls = collectGroundingUrls(response);
+  return normalizeFactCheckResult(rawText, groundingUrls);
+}
+
 exports.factCheck = onRequest(
   {
     cors: true,
     secrets: [GEMINI_API_KEY],
   },
   async (req, res) => {
+    const streamResponse = wantsEventStream(req);
+
     try {
       if (req.method === "OPTIONS") {
         res.status(204).send("");
@@ -158,52 +294,38 @@ exports.factCheck = onRequest(
         return;
       }
 
-      if (!process.env.GEMINI_API_KEY) {
-        throw new Error("GEMINI_API_KEY secret is not configured.");
+      if (streamResponse) {
+        startEventStream(res);
+        sendStreamEvent(res, { status: "analyzing" });
+
+        try {
+          const result = await generateFactCheck(text, (status) => {
+            sendStreamEvent(res, { status });
+          });
+          sendStreamEvent(res, { result });
+          res.end();
+        } catch (error) {
+          logger.warn("factCheck stream failed", {
+            error: error.message,
+            stack: error.stack,
+          });
+          sendStreamEvent(res, {
+            error: publicErrorMessage(error),
+            status: "error",
+          });
+          res.end();
+        }
+        return;
       }
 
-      const ai = new GoogleGenAI({
-        apiKey: process.env.GEMINI_API_KEY,
-      });
-
-      const response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: [
-          {
-            role: "user",
-            parts: [
-              {
-                text: `${USER_PROMPT_PREFIX}\n\n${text}`,
-              },
-            ],
-          },
-        ],
-        config: {
-          tools: [
-            {
-              googleSearch: {},
-            },
-          ],
-          systemInstruction: SYSTEM_INSTRUCTION,
-        },
-      });
-
-      const rawText = response.text;
-
-      if (!rawText) {
-        throw new Error("Gemini returned an empty response.");
-      }
-
-      const groundingUrls = collectGroundingUrls(response);
-      const result = normalizeFactCheckResult(rawText, groundingUrls);
-
+      const result = await generateFactCheck(text);
       res.status(200).json(result);
     } catch (error) {
-      logger.error("factCheck failed", {
+      logger.warn("factCheck failed", {
         error: error.message,
         stack: error.stack,
       });
-      res.status(500).json({ error: "Internal server error." });
+      res.status(publicErrorStatus(error)).json({ error: publicErrorMessage(error) });
     }
   },
 );

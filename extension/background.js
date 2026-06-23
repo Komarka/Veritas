@@ -1,4 +1,5 @@
-const DEFAULT_BACKEND_URL = "https://us-central1-veritas-c2907.cloudfunctions.net/factCheck";
+const DEFAULT_BACKEND_URL =
+  "https://us-central1-veritas-c2907.cloudfunctions.net/factCheck";
 const TOKEN_STORAGE_KEY = "veritasAuth";
 const PENDING_CLAIM_STORAGE_KEY = "veritasPendingClaim";
 const MENU_ID = "veritas-check-text";
@@ -31,7 +32,10 @@ async function openVeritasPopup() {
       await chrome.action.openPopup();
       return;
     } catch (error) {
-      console.warn("Could not open the toolbar popup. Falling back to popup window.", error);
+      console.warn(
+        "Could not open the toolbar popup. Falling back to popup window.",
+        error,
+      );
     }
   }
 
@@ -45,6 +49,14 @@ async function openVeritasPopup() {
     });
   } catch (error) {
     console.warn("Could not open Veritas AI popup window.", error);
+  }
+}
+
+async function readJsonResponse(response) {
+  try {
+    return await response.json();
+  } catch (error) {
+    throw new Error("The backend returned an invalid JSON response.");
   }
 }
 
@@ -71,24 +83,157 @@ async function runFactCheck(text) {
     body: JSON.stringify({ text: selectedText }),
   });
 
-  let payload;
-  try {
-    payload = await response.json();
-  } catch (error) {
-    throw new Error("The backend returned an invalid JSON response.");
-  }
+  const payload = await readJsonResponse(response);
 
   if (!response.ok) {
     if (response.status === 401) {
       await chrome.storage.local.remove(TOKEN_STORAGE_KEY);
       await openVeritasPopup();
-      throw new Error("Your session expired. Open Veritas AI and sign in again.");
+      throw new Error(
+        "Your session expired. Open Veritas AI and sign in again.",
+      );
     }
 
-    throw new Error(payload?.error || `Fact check failed with status ${response.status}.`);
+    throw new Error(
+      payload?.error || `Fact check failed with status ${response.status}.`,
+    );
   }
 
   return payload;
+}
+
+function parseSseChunk(buffer, onEvent) {
+  const events = buffer.split("\n\n");
+  const remainder = events.pop() || "";
+
+  for (const eventText of events) {
+    const dataLines = eventText
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim());
+
+    if (dataLines.length === 0) {
+      continue;
+    }
+
+    try {
+      onEvent(JSON.parse(dataLines.join("\n")));
+    } catch (error) {
+      onEvent({ error: "Invalid stream event received." });
+    }
+  }
+
+  return remainder;
+}
+
+async function streamFactCheck(text, port) {
+  const selectedText = String(text || "").trim();
+
+  if (!selectedText) {
+    port.postMessage({
+      type: "VERITAS_STREAM_ERROR",
+      error: "No selected text was received.",
+    });
+    return;
+  }
+
+  const { token, backendUrl } = await getAuthContext();
+
+  if (!token) {
+    await openVeritasPopup();
+    port.postMessage({
+      type: "VERITAS_STREAM_ERROR",
+      error: "Please log in via the Veritas AI popup first.",
+    });
+    return;
+  }
+
+  const response = await fetch(backendUrl, {
+    method: "POST",
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text: selectedText }),
+  });
+
+  if (!response.ok) {
+    const payload = await readJsonResponse(response);
+
+    if (response.status === 401) {
+      await chrome.storage.local.remove(TOKEN_STORAGE_KEY);
+      await openVeritasPopup();
+      port.postMessage({
+        type: "VERITAS_STREAM_ERROR",
+        error: "Your session expired. Open Veritas AI and sign in again.",
+      });
+      return;
+    }
+
+    port.postMessage({
+      type: "VERITAS_STREAM_ERROR",
+      error:
+        payload?.error || `Fact check failed with status ${response.status}.`,
+    });
+    return;
+  }
+
+  if (!response.body) {
+    port.postMessage({
+      type: "VERITAS_STREAM_ERROR",
+      error: "Streaming is not available.",
+    });
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    buffer = parseSseChunk(buffer, (event) => {
+      if (event.status) {
+        port.postMessage({
+          type: "VERITAS_STREAM_STATUS",
+          status: event.status,
+        });
+      }
+
+      if (event.result) {
+        port.postMessage({
+          type: "VERITAS_STREAM_RESULT",
+          result: event.result,
+        });
+      }
+
+      if (event.error) {
+        port.postMessage({ type: "VERITAS_STREAM_ERROR", error: event.error });
+      }
+    });
+  }
+
+  buffer += decoder.decode();
+  parseSseChunk(`${buffer}\n\n`, (event) => {
+    if (event.status) {
+      port.postMessage({ type: "VERITAS_STREAM_STATUS", status: event.status });
+    }
+
+    if (event.result) {
+      port.postMessage({ type: "VERITAS_STREAM_RESULT", result: event.result });
+    }
+
+    if (event.error) {
+      port.postMessage({ type: "VERITAS_STREAM_ERROR", error: event.error });
+    }
+  });
 }
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -122,7 +267,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   runFactCheck(message.text)
     .then((result) => sendResponse({ ok: true, result }))
-    .catch((error) => sendResponse({ ok: false, error: error.message || "Fact check failed." }));
+    .catch((error) =>
+      sendResponse({ ok: false, error: error.message || "Fact check failed." }),
+    );
 
   return true;
+});
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "veritas-fact-check-stream") {
+    return;
+  }
+
+  port.onMessage.addListener((message) => {
+    if (message?.type !== "VERITAS_STREAM_FACT_CHECK") {
+      return;
+    }
+
+    streamFactCheck(message.text, port).catch((error) => {
+      port.postMessage({
+        type: "VERITAS_STREAM_ERROR",
+        error: error.message || "Verification error",
+      });
+    });
+  });
 });

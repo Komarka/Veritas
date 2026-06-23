@@ -77,93 +77,113 @@
           </div>
         </section>
 
-        <section class="dash-card score-card result-only hidden" aria-label="Truth score overview">
-          <div class="score-gauge">
-            <svg viewBox="0 0 120 120" aria-hidden="true">
-              <circle class="score-track" cx="60" cy="60" r="50"></circle>
-              <circle id="score-ring" class="score-ring" cx="60" cy="60" r="50"></circle>
-            </svg>
-            <div class="score-center">
-              <span id="score">--</span>
-              <small>TRUTH SCORE</small>
+        <div class="dashboard-pane" data-view="check">
+          <section class="dash-card score-card result-only hidden" aria-label="Truth score overview">
+            <div class="score-gauge">
+              <svg viewBox="0 0 120 120" aria-hidden="true">
+                <circle class="score-track" cx="60" cy="60" r="50"></circle>
+                <circle id="score-ring" class="score-ring" cx="60" cy="60" r="50"></circle>
+              </svg>
+              <div class="score-center">
+                <span id="score">--</span>
+                <small>TRUTH SCORE</small>
+              </div>
             </div>
-          </div>
-          <div class="confidence-chip" id="confidence-chip">Awaiting Analysis</div>
-          <div class="metric-grid">
-            <div class="metric-card">
-              <span>Sources</span>
-              <strong id="source-count">0</strong>
+            <div class="confidence-chip" id="confidence-chip">Awaiting Analysis</div>
+            <div class="metric-grid">
+              <div class="metric-card">
+                <span>Sources</span>
+                <strong id="source-count">0</strong>
+              </div>
+              <div class="metric-card">
+                <span>Risks</span>
+                <strong id="risk-count">0</strong>
+              </div>
             </div>
-            <div class="metric-card">
-              <span>Risks</span>
-              <strong id="risk-count">0</strong>
+          </section>
+
+          <section class="dash-card quick-card">
+            <div class="section-heading">
+              <h3>Quick Analysis</h3>
+              <span>Manual Claim</span>
             </div>
-          </div>
-        </section>
+            <label class="claim-label" for="claim-text">Claim or text fragment</label>
+            <textarea id="claim-text" rows="5" placeholder="Paste a claim, post, article fragment, or suspicious statement..."></textarea>
+            <button id="fact-check-btn" class="primary-btn wide" type="button">
+              <span>Scan Claim</span>
+              <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12l2 2 4-5M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6l7-3z"/></svg>
+            </button>
+          </section>
 
-        <section class="dash-card quick-card">
-          <div class="section-heading">
-            <h3>Quick Analysis</h3>
-            <span>Manual Claim</span>
-          </div>
-          <label class="claim-label" for="claim-text">Claim or text fragment</label>
-          <textarea id="claim-text" rows="5" placeholder="Paste a claim, post, article fragment, or suspicious statement..."></textarea>
-          <button id="fact-check-btn" class="primary-btn wide" type="button">
-            <span>Scan Claim</span>
-            <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12l2 2 4-5M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6l7-3z"/></svg>
-          </button>
-        </section>
+          <section id="result-box" class="dash-card result-card hidden" aria-live="polite">
+            <div class="section-heading">
+              <h3>Intelligence Detail</h3>
+              <span id="verdict">Pending</span>
+            </div>
 
-        <section id="result-box" class="dash-card result-card hidden" aria-live="polite">
-          <div class="section-heading">
-            <h3>Intelligence Detail</h3>
-            <span id="verdict">Pending</span>
-          </div>
+            <div class="result-section">
+              <h3>Analysis Report</h3>
+              <p id="analysis"></p>
+            </div>
 
-          <div class="result-section">
-            <h3>Analysis Report</h3>
-            <p id="analysis"></p>
-          </div>
+            <div class="result-section">
+              <h3>Verified Facts</h3>
+              <p id="facts"></p>
+            </div>
+          </section>
+        </div>
 
-          <div class="result-section">
-            <h3>Verified Facts</h3>
-            <p id="facts"></p>
-          </div>
+        <div class="dashboard-pane result-only hidden" data-view="sources">
+          <section class="dash-card sources-view-card">
+            <div class="section-heading">
+              <h3>Sources</h3>
+              <div class="segmented-toggle" role="tablist" aria-label="Sources display mode">
+                <button class="active" type="button" data-source-mode="list" role="tab" aria-selected="true">List</button>
+                <button type="button" data-source-mode="chart" role="tab" aria-selected="false">Chart</button>
+              </div>
+            </div>
 
-          <div class="result-section">
-            <h3>Verified Sources</h3>
-            <ul id="sources" class="source-list"></ul>
-          </div>
-        </section>
+            <div class="source-mode-panel" data-source-panel="list">
+              <div class="result-section source-panel-section">
+                <h3>Verified Sources</h3>
+                <ul id="sources" class="source-list"></ul>
+              </div>
+            </div>
 
-        <section class="dash-card processing-card result-only hidden">
-          <h3>Latency & Processing</h3>
-          <div class="bar-graph" aria-hidden="true">
-            <span style="height:60%"></span>
-            <span style="height:42%"></span>
-            <span style="height:74%"></span>
-            <span style="height:50%"></span>
-            <span class="active-bar" style="height:86%"></span>
-            <span style="height:38%"></span>
-            <span style="height:58%"></span>
-            <span style="height:90%"></span>
-            <span style="height:66%"></span>
-            <span style="height:44%"></span>
-            <span style="height:30%"></span>
-            <span style="height:70%"></span>
-          </div>
-          <div class="graph-labels">
-            <span>00:00 UTC</span>
-            <span>Peak Activity</span>
-            <span>Current</span>
-          </div>
-        </section>
+            <div class="source-mode-panel hidden" data-source-panel="chart">
+              <div class="processing-card source-chart-panel">
+                <h3 id="source-weight-title">Source Weight Distribution</h3>
+                <div id="source-weight-chart" class="bar-graph" aria-label="Source trust weight chart"></div>
+                <div id="source-weight-labels" class="graph-labels" aria-hidden="true"></div>
+              </div>
+            </div>
+          </section>
+        </div>
 
+        <div class="dashboard-pane result-only hidden" data-view="alerts">
+          <section class="dash-card empty-view-card">
+            <div class="section-heading">
+              <h3>Alerts</h3>
+              <span>Risk Signals</span>
+            </div>
+            <p class="muted">No separate alerts for this claim.</p>
+          </section>
+        </div>
+
+        <div class="dashboard-pane result-only hidden" data-view="account">
+          <section class="dash-card empty-view-card">
+            <div class="section-heading">
+              <h3>Account</h3>
+              <span>Session</span>
+            </div>
+            <p class="muted">Use Exit in the header to sign out.</p>
+          </section>
+        </div>
         <nav class="bottom-nav result-only hidden" aria-label="Dashboard navigation">
-          <button class="active" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l2 2 4-5M5 5h14v14H5z"/></svg><span>Check</span></button>
-          <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V5h14v14M8 16v-4M12 16V8M16 16v-6"/></svg><span>Sources</span></button>
-          <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><span>Alerts</span></button>
-          <button type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg><span>Account</span></button>
+          <button class="active" type="button" data-nav-view="check"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4z"/><path d="M8 12l2.2 2.2L15.5 9"/><path d="M16 5v4h4"/></svg><span>Check</span></button>
+          <button type="button" data-nav-view="sources"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V4h14v16H5z"/><path d="M9 16v-4M12 16V8M15 16v-6"/></svg><span>Sources</span></button>
+          <button type="button" data-nav-view="alerts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 6-2.5 7-2.5 8h17c0-1-2.5-2-2.5-8Z"/><path d="M10 20h4"/></svg><span>Alerts</span></button>
+          <button type="button" data-nav-view="account"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.04.04-2.97 2.97-.04-.04a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.09 1.65V22H9.52v-.76a1.8 1.8 0 0 0-1.09-1.65 1.8 1.8 0 0 0-1.98.36l-.04.04-2.97-2.97.04-.04A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.65-1.09H2v-4.2h.96A1.8 1.8 0 0 0 4.6 8a1.8 1.8 0 0 0-.36-1.98l-.04-.04 2.97-2.97.04.04A1.8 1.8 0 0 0 9.2 3.4 1.8 1.8 0 0 0 10.29 1.75V2h4.2v-.24A1.8 1.8 0 0 0 15.58 3.4a1.8 1.8 0 0 0 1.98-.36l.04-.04 2.97 2.97-.04.04A1.8 1.8 0 0 0 19.4 8c.12.36.4.67.75.85.28.14.59.22.9.22H22v4.2h-.96A1.8 1.8 0 0 0 19.4 15Z"/></svg><span>Account</span></button>
         </nav>
       </section>    </main>
 
