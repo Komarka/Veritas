@@ -186,6 +186,7 @@ async function setSelectedImageFromBlob(blob, options = {}) {
   };
 
   imagePreview.src = selectedImage.previewUrl;
+  imageDropZone.classList.add("has-preview");
   imageMeta.textContent = `${selectedImage.label} | ${mimeType} | ${formatBytes(blob.size)}`;
   setVisible(imageEmptyState, false);
   setVisible(imagePreviewState, true);
