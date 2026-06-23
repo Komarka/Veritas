@@ -9,11 +9,13 @@ const logger = require("firebase-functions/logger");
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 const GEMINI_MODEL = "gemini-2.5-flash";
 const MAX_GEMINI_ATTEMPTS = 3;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const SUPPORTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 const USER_PROMPT_PREFIX =
   "Fact-check and analyze the following claim. Return verdict, analysis, and facts in the same primary language as the claim. If the claim mixes languages, use the language used most in the claim:";
 
-const SYSTEM_INSTRUCTION = [
+const TEXT_SYSTEM_INSTRUCTION = [
   "You are Veritas AI, a fact-checking and media-manipulation analysis backend for a Chrome extension.",
   "You must use Google Search grounding to find current facts, official data, rebuttals, and cross-checks.",
   "Return exactly one valid JSON object and no Markdown, no code fences, and no explanatory text outside JSON.",
@@ -26,6 +28,24 @@ const SYSTEM_INSTRUCTION = [
   "analysis should be 2 to 4 concise sentences explaining the reasoning and any manipulation, missing context, or logical fallacy.",
   "facts should be 2 to 4 concise sentences with the strongest verified facts found through search.",
   "sources should contain 3 to 8 real absolute HTTP/HTTPS URLs used to support the analysis when available.",
+].join(" ");
+
+const IMAGE_SYSTEM_INSTRUCTION = [
+  "You are Veritas AI, a multimodal image fact-checking and AI/deepfake detection backend for a Chrome extension.",
+  "Analyze the submitted image as both an OCR fact-checker and an image synthesis/deepfake detector.",
+  "Extract visible text, captions, usernames, claims, screenshots, posts, headlines, and other assertions from the image.",
+  "Use Google Search grounding to verify extracted text, visible claims, screenshots, posts, and source context when possible.",
+  "Inspect the image pixels for AI-generation or manipulation markers: unnatural smoothing, warped text, blended letters, distorted logos, inconsistent shadows, face or hand artifacts, compression mismatches, screenshot fabrication, and layout anomalies.",
+  "Return exactly one valid JSON object and no Markdown, no code fences, and no explanatory text outside JSON.",
+  "Use the dominant language found in the image text when possible; otherwise answer in English.",
+  "The JSON object must match this shape:",
+  '{"score": 0, "verdict": "short text", "isAiGenerated": false, "aiProbability": 0, "aiAnalysis": "visual/deepfake explanation", "textAnalysis": "OCR and search-grounded fact-check", "sources": ["https://verified-source.example"]}',
+  "score must be an integer from 0 to 100 representing overall trust in the image and its claims.",
+  "aiProbability must be an integer from 0 to 100 representing likelihood of AI generation, deepfake, or synthetic fabrication.",
+  "isAiGenerated must be true when AI generation, deepfake, or synthetic fabrication is more likely than not.",
+  "aiAnalysis should explain visual evidence in 2 to 5 concise sentences.",
+  "textAnalysis should explain extracted text and Google Search verification in 2 to 5 concise sentences.",
+  "sources should contain real absolute HTTP/HTTPS URLs used to support the textAnalysis when available.",
 ].join(" ");
 
 if (!admin.apps.length) {
@@ -80,8 +100,7 @@ function extractJsonObject(rawText) {
   try {
     return JSON.parse(trimmed);
   } catch (error) {
-    // Google Search grounding cannot be combined with responseMimeType, so keep
-    // a narrow fallback for occasional code fences or surrounding prose.
+    // Keep a narrow fallback for occasional code fences or surrounding prose.
   }
 
   const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
@@ -96,6 +115,27 @@ function extractJsonObject(rawText) {
   return JSON.parse(candidate.slice(start, end + 1));
 }
 
+function normalizeSources(parsedSources, groundingUrls) {
+  const mergedSources = new Set(
+    Array.isArray(parsedSources)
+      ? parsedSources.filter(
+          (source) => typeof source === "string" && source.startsWith("http"),
+        )
+      : [],
+  );
+
+  for (const url of groundingUrls) {
+    mergedSources.add(url);
+  }
+
+  return Array.from(mergedSources);
+}
+
+function normalizeScore(value) {
+  const score = Number.parseInt(value, 10);
+  return Number.isInteger(score) ? Math.min(100, Math.max(0, score)) : 0;
+}
+
 function normalizeFactCheckResult(rawText, groundingUrls) {
   const parsed = extractJsonObject(rawText);
 
@@ -103,24 +143,37 @@ function normalizeFactCheckResult(rawText, groundingUrls) {
     throw new Error("Gemini returned a non-object JSON response.");
   }
 
-  const score = Number.parseInt(parsed.score, 10);
-  const sources = Array.isArray(parsed.sources) ? parsed.sources : [];
-  const mergedSources = new Set(
-    sources.filter(
-      (source) => typeof source === "string" && source.startsWith("http"),
-    ),
-  );
-
-  for (const url of groundingUrls) {
-    mergedSources.add(url);
-  }
-
   return {
-    score: Number.isInteger(score) ? Math.min(100, Math.max(0, score)) : 0,
+    score: normalizeScore(parsed.score),
     verdict: typeof parsed.verdict === "string" ? parsed.verdict : "",
     analysis: typeof parsed.analysis === "string" ? parsed.analysis : "",
     facts: typeof parsed.facts === "string" ? parsed.facts : "",
-    sources: Array.from(mergedSources),
+    sources: normalizeSources(parsed.sources, groundingUrls),
+  };
+}
+
+function normalizeImageFactCheckResult(rawText, groundingUrls) {
+  const parsed = extractJsonObject(rawText);
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Gemini returned a non-object JSON response.");
+  }
+
+  const aiProbability = normalizeScore(parsed.aiProbability);
+
+  return {
+    score: normalizeScore(parsed.score),
+    verdict: typeof parsed.verdict === "string" ? parsed.verdict : "",
+    isAiGenerated:
+      typeof parsed.isAiGenerated === "boolean"
+        ? parsed.isAiGenerated
+        : aiProbability >= 50,
+    aiProbability,
+    aiAnalysis:
+      typeof parsed.aiAnalysis === "string" ? parsed.aiAnalysis : "",
+    textAnalysis:
+      typeof parsed.textAnalysis === "string" ? parsed.textAnalysis : "",
+    sources: normalizeSources(parsed.sources, groundingUrls),
   };
 }
 
@@ -166,7 +219,7 @@ function publicErrorMessage(error) {
     return "Gemini is temporarily overloaded. Try again in a moment.";
   }
 
-  return "ÐžÑˆÐ¸Ð±ÐºÐ° Ð²ÐµÑ€Ð¸Ñ„Ð¸ÐºÐ°Ñ†Ð¸Ð¸";
+  return "Verification error";
 }
 
 function publicErrorStatus(error) {
@@ -187,43 +240,24 @@ function wait(ms) {
   });
 }
 
-async function generateFactCheck(text, progress) {
+function createAiClient() {
   if (!process.env.GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY secret is not configured.");
   }
 
-  const ai = new GoogleGenAI({
+  return new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY,
   });
+}
 
-  progress?.("searching");
-
+async function generateWithRetry(request) {
+  const ai = createAiClient();
   let response;
   let lastError;
 
   for (let attempt = 1; attempt <= MAX_GEMINI_ATTEMPTS; attempt += 1) {
     try {
-      response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: [
-          {
-            role: "user",
-            parts: [
-              {
-                text: `${USER_PROMPT_PREFIX}\n\n${text}`,
-              },
-            ],
-          },
-        ],
-        config: {
-          tools: [
-            {
-              googleSearch: {},
-            },
-          ],
-          systemInstruction: SYSTEM_INSTRUCTION,
-        },
-      });
+      response = await ai.models.generateContent(request);
       break;
     } catch (error) {
       lastError = error;
@@ -245,6 +279,35 @@ async function generateFactCheck(text, progress) {
     throw lastError || new Error("Gemini did not return a response.");
   }
 
+  return response;
+}
+
+async function generateFactCheck(text, progress) {
+  progress?.("searching");
+
+  const response = await generateWithRetry({
+    model: GEMINI_MODEL,
+    contents: [
+      {
+        role: "user",
+        parts: [
+          {
+            text: `${USER_PROMPT_PREFIX}\n\n${text}`,
+          },
+        ],
+      },
+    ],
+    config: {
+      tools: [
+        {
+          googleSearch: {},
+        },
+      ],
+      responseMimeType: "application/json",
+      systemInstruction: TEXT_SYSTEM_INSTRUCTION,
+    },
+  });
+
   progress?.("forming_verdict");
 
   const rawText = response.text;
@@ -255,6 +318,112 @@ async function generateFactCheck(text, progress) {
 
   const groundingUrls = collectGroundingUrls(response);
   return normalizeFactCheckResult(rawText, groundingUrls);
+}
+
+async function generateImageFactCheck(imageInput, progress) {
+  progress?.("searching");
+
+  const imagePrompt = [
+    "Analyze this image for visual authenticity and fact-check any visible text or claim.",
+    imageInput.imageUrl
+      ? `Original image URL for context: ${imageInput.imageUrl}`
+      : "No original image URL was provided.",
+  ].join("\n\n");
+
+  const response = await generateWithRetry({
+    model: GEMINI_MODEL,
+    contents: [
+      {
+        role: "user",
+        parts: [
+          {
+            text: imagePrompt,
+          },
+          {
+            inlineData: {
+              mimeType: imageInput.mimeType,
+              data: imageInput.imageBase64,
+            },
+          },
+        ],
+      },
+    ],
+    config: {
+      tools: [
+        {
+          googleSearch: {},
+        },
+      ],
+      responseMimeType: "application/json",
+      systemInstruction: IMAGE_SYSTEM_INSTRUCTION,
+    },
+  });
+
+  progress?.("forming_verdict");
+
+  const rawText = response.text;
+
+  if (!rawText) {
+    throw new Error("Gemini returned an empty response.");
+  }
+
+  const groundingUrls = collectGroundingUrls(response);
+  return normalizeImageFactCheckResult(rawText, groundingUrls);
+}
+
+function getRequestPayload(req) {
+  const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+  const imageBase64 =
+    typeof req.body?.imageBase64 === "string"
+      ? req.body.imageBase64.trim()
+      : "";
+  const mimeType =
+    typeof req.body?.mimeType === "string"
+      ? req.body.mimeType.trim().toLowerCase()
+      : "";
+  const imageUrl =
+    typeof req.body?.imageUrl === "string" ? req.body.imageUrl.trim() : "";
+
+  if (text) {
+    return { type: "text", text };
+  }
+
+  if (!imageBase64 && !mimeType) {
+    return null;
+  }
+
+  if (!imageBase64 || !mimeType) {
+    const error = new Error(
+      "Image requests must include imageBase64 and mimeType fields.",
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!SUPPORTED_IMAGE_TYPES.has(mimeType)) {
+    const error = new Error("Unsupported image type. Use PNG, JPEG, or WebP.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const byteEstimate = Math.floor((imageBase64.length * 3) / 4);
+
+  if (byteEstimate > MAX_IMAGE_BYTES) {
+    const error = new Error("Image is too large. Maximum size is 5 MB.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    type: "image",
+    imageBase64,
+    mimeType,
+    imageUrl,
+  };
+}
+
+function requestErrorStatus(error) {
+  return Number.isInteger(error?.statusCode) ? error.statusCode : 400;
 }
 
 exports.factCheck = onRequest(
@@ -284,25 +453,30 @@ exports.factCheck = onRequest(
         return;
       }
 
-      const text =
-        typeof req.body?.text === "string" ? req.body.text.trim() : "";
+      const payload = getRequestPayload(req);
 
-      if (!text) {
-        res
-          .status(400)
-          .json({ error: "Request body must include a non-empty text field." });
+      if (!payload) {
+        res.status(400).json({
+          error:
+            "Request body must include either a non-empty text field or imageBase64 with mimeType.",
+        });
         return;
       }
+
+      const generate = (progress) =>
+        payload.type === "image"
+          ? generateImageFactCheck(payload, progress)
+          : generateFactCheck(payload.text, progress);
 
       if (streamResponse) {
         startEventStream(res);
         sendStreamEvent(res, { status: "analyzing" });
 
         try {
-          const result = await generateFactCheck(text, (status) => {
+          const result = await generate((status) => {
             sendStreamEvent(res, { status });
           });
-          sendStreamEvent(res, { result });
+          sendStreamEvent(res, { result, resultType: payload.type });
           res.end();
         } catch (error) {
           logger.warn("factCheck stream failed", {
@@ -318,14 +492,22 @@ exports.factCheck = onRequest(
         return;
       }
 
-      const result = await generateFactCheck(text);
+      const result = await generate();
       res.status(200).json(result);
     } catch (error) {
       logger.warn("factCheck failed", {
         error: error.message,
         stack: error.stack,
       });
-      res.status(publicErrorStatus(error)).json({ error: publicErrorMessage(error) });
+
+      if (error?.statusCode) {
+        res.status(requestErrorStatus(error)).json({ error: error.message });
+        return;
+      }
+
+      res.status(publicErrorStatus(error)).json({
+        error: publicErrorMessage(error),
+      });
     }
   },
 );

@@ -906,60 +906,70 @@ textarea:focus {
 
 .bottom-nav {
   position: fixed;
-  right: 14px;
+  right: 0;
   bottom: 0;
-  left: 14px;
+  left: 0;
   z-index: 20;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  align-items: center;
+  height: 74px;
   margin: 0;
-  padding: 8px 18px;
-  border: 1px solid var(--line);
-  border-radius: 12px 12px 8px 8px;
-  background: #1e2020;
-  box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.35);
+  padding: 8px 16px 10px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 12px 12px 0 0;
+  background: var(--panel-2);
+  box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.38);
 }
 
 .bottom-nav button {
   display: grid;
-  grid-template-rows: 22px 15px;
+  grid-template-rows: 24px 15px;
   align-content: center;
   align-items: center;
   justify-items: center;
-  row-gap: 3px;
-  width: 76px;
-  min-width: 0;
-  min-height: 50px;
   justify-self: center;
-  padding: 6px 4px 7px;
+  row-gap: 3px;
+  width: 78px;
+  min-width: 0;
+  height: 54px;
+  padding: 6px 4px;
   border: 0;
   border-radius: 999px;
-  color: #bfc0ca;
+  color: var(--muted);
   background: transparent;
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 10px;
   font-weight: 800;
   line-height: 1;
   cursor: pointer;
+  transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 120ms ease;
+}
+
+.bottom-nav button:hover {
+  color: var(--cyan);
+}
+
+.bottom-nav button:active {
+  transform: scale(0.96);
 }
 
 .bottom-nav svg {
   display: block;
   width: 22px;
   height: 22px;
-  margin: 0 auto;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.75;
+  stroke-width: 1.85;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .bottom-nav button.active {
-  color: #073b43;
+  color: #00363d;
   background: var(--cyan);
-  box-shadow: 0 0 14px rgba(0, 227, 253, 0.34);
+  box-shadow: 0 0 12px rgba(0, 227, 253, 0.3);
 }
 
 .bottom-nav span {
@@ -975,4 +985,207 @@ textarea:focus {
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.check-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(12, 15, 15, 0.94);
+}
+
+.check-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.check-tabs button.active {
+  color: #00363d;
+  background: var(--cyan);
+  box-shadow: 0 0 12px rgba(0, 227, 253, 0.24);
+}
+
+.tab-icon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.check-mode-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.image-card,
+.image-result-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.image-drop-zone {
+  position: relative;
+  display: grid;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  min-height: 220px;
+  max-height: 300px;
+  overflow: hidden;
+  place-items: center;
+  padding: 18px;
+  border: 2px dashed var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(0, 227, 253, 0.12), transparent 42%),
+    #0c0f0f;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 120ms ease;
+}
+
+.image-drop-zone:hover,
+.image-drop-zone.drag-over {
+  border-color: var(--cyan);
+  box-shadow: inset 0 0 24px rgba(0, 227, 253, 0.08), 0 0 16px rgba(0, 227, 253, 0.14);
+}
+
+.image-drop-zone:active {
+  transform: scale(0.99);
+}
+
+.image-empty-state,
+.image-preview-state {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.image-empty-state svg {
+  width: 42px;
+  height: 42px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.image-empty-state strong {
+  color: var(--text);
+  font-family: "Hanken Grotesk", Inter, sans-serif;
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.image-empty-state small,
+.image-meta {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.image-preview-state {
+  position: absolute;
+  inset: 0;
+}
+
+.image-preview-state img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #050707;
+}
+
+.image-preview-state::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 62%, rgba(0, 0, 0, 0.58));
+}
+
+.image-replace-chip {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 1;
+  padding: 6px 10px;
+  border: 1px solid rgba(0, 227, 253, 0.45);
+  border-radius: 999px;
+  color: var(--cyan);
+  background: rgba(12, 15, 15, 0.84);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.image-meta {
+  min-height: 17px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.image-score-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.image-score-card {
+  display: grid;
+  gap: 8px;
+  min-height: 104px;
+  place-items: center;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #1a1c1c;
+  text-align: center;
+}
+
+.image-score-card span {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.image-score-card strong {
+  color: var(--cyan);
+  font-family: "Hanken Grotesk", Inter, sans-serif;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.image-score-card.danger strong {
+  color: var(--red);
 }

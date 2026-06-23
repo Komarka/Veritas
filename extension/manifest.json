@@ -10,7 +10,8 @@
                         "storage"
                     ],
     "host_permissions":  [
-                             "https://us-central1-veritas-c2907.cloudfunctions.net/*"
+                             "https://us-central1-veritas-c2907.cloudfunctions.net/*",
+                             "\u003call_urls\u003e"
                          ],
     "background":  {
                        "service_worker":  "background.js"
@@ -53,4 +54,3 @@
                                      }
                                  ]
 }
-

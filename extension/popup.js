@@ -11,6 +11,9 @@ const CLOUD_FUNCTION_URL =
   "https://us-central1-veritas-c2907.cloudfunctions.net/factCheck";
 const TOKEN_STORAGE_KEY = "veritasAuth";
 const PENDING_CLAIM_STORAGE_KEY = "veritasPendingClaim";
+const PENDING_IMAGE_STORAGE_KEY = "veritasPendingImage";
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const SUPPORTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const STREAM_STATUS_TEXT = {
   analyzing: "Analyzing text...",
   searching: "Searching Google sources...",
@@ -69,6 +72,22 @@ const navButtons = document.querySelectorAll("[data-nav-view]");
 const sourceModeButtons = document.querySelectorAll("[data-source-mode]");
 const sourceModePanels = document.querySelectorAll("[data-source-panel]");
 const resultOnlyEls = document.querySelectorAll(".result-only");
+const checkModeButtons = document.querySelectorAll("[data-check-mode]");
+const checkModePanels = document.querySelectorAll("[data-check-panel]");
+const imageFileInput = document.querySelector("#image-file-input");
+const imageDropZone = document.querySelector("#image-drop-zone");
+const imageEmptyState = document.querySelector("#image-empty-state");
+const imagePreviewState = document.querySelector("#image-preview-state");
+const imagePreview = document.querySelector("#image-preview");
+const imageMeta = document.querySelector("#image-meta");
+const imageCheckBtn = document.querySelector("#image-check-btn");
+const imageResultBox = document.querySelector("#image-result-box");
+const imageVerdictEl = document.querySelector("#image-verdict");
+const imageScoreEl = document.querySelector("#image-score");
+const imageAiProbabilityEl = document.querySelector("#image-ai-probability");
+const imageAiAnalysisEl = document.querySelector("#image-ai-analysis");
+const imageTextAnalysisEl = document.querySelector("#image-text-analysis");
+let selectedImage = null;
 
 function setVisible(element, isVisible) {
   element.classList.toggle("hidden", !isVisible);
@@ -91,6 +110,121 @@ function setActiveView(viewName, options = {}) {
   }
 }
 
+function setCheckMode(mode) {
+  for (const button of checkModeButtons) {
+    const isTarget = button.dataset.checkMode === mode;
+    button.classList.toggle("active", isTarget);
+    button.setAttribute("aria-selected", String(isTarget));
+  }
+
+  for (const panel of checkModePanels) {
+    setVisible(panel, panel.dataset.checkPanel === mode);
+  }
+}
+
+function clearImageResult() {
+  setVisible(imageResultBox, false);
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "Unknown size";
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${Math.round(bytes / 1024)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function base64FromDataUrl(dataUrl) {
+  const [, base64 = ""] = String(dataUrl).split(",");
+  return base64;
+}
+
+function readBlobAsDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read image data."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function sourceLabelFromUrl(imageUrl) {
+  if (!imageUrl) {
+    return "Uploaded image";
+  }
+
+  try {
+    return new URL(imageUrl).hostname.replace(/^www\./, "");
+  } catch (error) {
+    return "Web image";
+  }
+}
+
+async function setSelectedImageFromBlob(blob, options = {}) {
+  const mimeType = String(blob?.type || options.mimeType || "").toLowerCase();
+
+  if (!SUPPORTED_IMAGE_TYPES.has(mimeType)) {
+    throw new Error("Unsupported image type. Use PNG, JPEG, or WebP.");
+  }
+
+  if (blob.size > MAX_IMAGE_BYTES) {
+    throw new Error("Image is too large. Maximum size is 5 MB.");
+  }
+
+  const dataUrl = await readBlobAsDataUrl(blob);
+  selectedImage = {
+    imageBase64: base64FromDataUrl(dataUrl),
+    mimeType,
+    imageUrl: options.imageUrl || "",
+    previewUrl: dataUrl,
+    size: blob.size,
+    label: options.label || sourceLabelFromUrl(options.imageUrl),
+  };
+
+  imagePreview.src = selectedImage.previewUrl;
+  imageMeta.textContent = `${selectedImage.label} | ${mimeType} | ${formatBytes(blob.size)}`;
+  setVisible(imageEmptyState, false);
+  setVisible(imagePreviewState, true);
+  imageCheckBtn.disabled = false;
+  setCheckMode("image");
+  setVisible(resultBox, false);
+  clearImageResult();
+  setResultMode(false);
+}
+
+async function setSelectedImageFromFile(file) {
+  await setSelectedImageFromBlob(file, {
+    label: file.name || "Uploaded image",
+    mimeType: file.type,
+  });
+}
+
+async function setSelectedImageFromUrl(imageUrl) {
+  const response = await fetch(imageUrl);
+
+  if (!response.ok) {
+    throw new Error(`Could not load image (${response.status}).`);
+  }
+
+  const contentType = String(response.headers.get("content-type") || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  const blob = await response.blob();
+  const typedBlob = blob.type
+    ? blob
+    : new Blob([blob], { type: contentType || "application/octet-stream" });
+
+  await setSelectedImageFromBlob(typedBlob, {
+    imageUrl,
+    mimeType: contentType || typedBlob.type,
+    label: sourceLabelFromUrl(imageUrl),
+  });
+}
 function setSourceMode(mode) {
   for (const button of sourceModeButtons) {
     const isTarget = button.dataset.sourceMode === mode;
@@ -135,13 +269,20 @@ function setLoading(isLoading, message = "Loading...") {
   setVisible(loadingBanner, isLoading);
 }
 
-function renderFactCheckProgress(status = "analyzing") {
+function renderFactCheckProgress(status = "analyzing", mode = "text") {
   const progress = STREAM_STATUS_PROGRESS[status] || STREAM_STATUS_PROGRESS.analyzing;
-  const steps = [
-    ["analyzing", "Analyzing text..."],
-    ["searching", "Searching Google sources..."],
-    ["forming_verdict", "Generating verdict..."],
-  ];
+  const steps =
+    mode === "image"
+      ? [
+          ["analyzing", "Scanning visual layers..."],
+          ["searching", "Querying Google Search indexes..."],
+          ["forming_verdict", "Generating visual verdict..."],
+        ]
+      : [
+          ["analyzing", "Analyzing text..."],
+          ["searching", "Searching Google sources..."],
+          ["forming_verdict", "Generating verdict..."],
+        ];
   const statusRank = steps.findIndex(([key]) => key === status);
 
   loadingBanner.classList.add("progress-banner");
@@ -188,8 +329,25 @@ function setFactCheckBusy(isBusy) {
   }
 }
 
+function setImageCheckBusy(isBusy) {
+  imageCheckBtn.disabled = isBusy || !selectedImage;
+  imageDropZone.disabled = isBusy;
+  imageCheckBtn.innerHTML = isBusy
+    ? "<span>Scanning image...</span>"
+    : '<span>Scan Image</span><svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6l7-3z" /><path d="M9 12l2 2 4-5" /></svg>';
+
+  if (isBusy) {
+    renderFactCheckProgress("analyzing", "image");
+  } else {
+    setLoading(false);
+  }
+}
 function setFactCheckStatus(status) {
-  renderFactCheckProgress(status);
+  renderFactCheckProgress(status, "text");
+}
+
+function setImageCheckStatus(status) {
+  renderFactCheckProgress(status, "image");
 }
 
 function friendlyAuthError(error, fallback) {
@@ -459,10 +617,98 @@ function renderResult(payload) {
     }
   }
 
+  setVisible(imageResultBox, false);
   setVisible(resultBox, true);
   setResultMode(true);
+  setCheckMode("text");
 }
 
+function normalizeImageResult(payload) {
+  const aiProbability = Number.isFinite(Number(payload?.aiProbability))
+    ? Math.max(0, Math.min(100, Number(payload.aiProbability)))
+    : 0;
+
+  return {
+    score: Number.isFinite(Number(payload?.score))
+      ? Math.max(0, Math.min(100, Number(payload.score)))
+      : 0,
+    verdict:
+      typeof payload?.verdict === "string" ? payload.verdict : "No verdict",
+    isAiGenerated:
+      typeof payload?.isAiGenerated === "boolean"
+        ? payload.isAiGenerated
+        : aiProbability >= 50,
+    aiProbability,
+    aiAnalysis:
+      typeof payload?.aiAnalysis === "string"
+        ? payload.aiAnalysis
+        : "Visual integrity analysis is unavailable.",
+    textAnalysis:
+      typeof payload?.textAnalysis === "string"
+        ? payload.textAnalysis
+        : "Text grounding analysis is unavailable.",
+    sources: Array.isArray(payload?.sources)
+      ? payload.sources.filter(
+          (source) => typeof source === "string" && source.startsWith("http"),
+        )
+      : [],
+    chartData: null,
+  };
+}
+
+function renderSourcesList(sources) {
+  sourcesEl.replaceChildren();
+
+  if (sources.length === 0) {
+    const empty = document.createElement("li");
+    empty.textContent = "No sources returned.";
+    sourcesEl.append(empty);
+    return;
+  }
+
+  for (const source of sources) {
+    const item = document.createElement("li");
+    const link = document.createElement("a");
+    link.href = source;
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    link.textContent = source;
+    item.append(link);
+    sourcesEl.append(item);
+  }
+}
+
+function renderImageResult(payload) {
+  const result = normalizeImageResult(payload);
+  result.chartData = normalizeChartData(payload, result.sources, result.score);
+  const color = scoreColor(result.score);
+  const aiColor = result.aiProbability >= 70 ? "#ff6b6b" : result.aiProbability >= 40 ? "#ffad42" : "#21d07a";
+
+  imageVerdictEl.textContent = result.verdict;
+  imageScoreEl.textContent = String(Math.round(result.score));
+  imageScoreEl.style.color = color;
+  imageAiProbabilityEl.textContent = `${Math.round(result.aiProbability)}%`;
+  imageAiProbabilityEl.style.color = aiColor;
+  imageAiAnalysisEl.textContent = result.aiAnalysis;
+  imageTextAnalysisEl.textContent = result.textAnalysis;
+
+  scoreEl.textContent = String(Math.round(result.score));
+  updateScoreGauge(result.score, color);
+  confidenceChip.textContent = result.isAiGenerated
+    ? "AI Generation Risk Detected"
+    : confidenceLabel(result.score);
+  confidenceChip.style.color = result.isAiGenerated ? aiColor : color;
+  confidenceChip.style.borderColor = result.isAiGenerated ? aiColor : color;
+  sourceCountEl.textContent = String(result.sources.length);
+  riskCountEl.textContent = String(Math.max(1, Math.ceil(result.aiProbability / 10)));
+  riskCountEl.style.color = aiColor;
+
+  renderSourcesList(result.sources);
+  renderSourceWeightChart(result.chartData);
+  setVisible(imageResultBox, true);
+  setResultMode(true);
+  setCheckMode("image");
+}
 async function storeFreshToken(user) {
   const token = await user.getIdToken(true);
   await chrome.storage.local.set({
@@ -489,6 +735,8 @@ async function applyPendingClaim() {
     return false;
   }
 
+  setCheckMode("text");
+
   claimText.value = text;
   setVisible(resultBox, false);
   setResultMode(false);
@@ -496,6 +744,23 @@ async function applyPendingClaim() {
   return Boolean(pendingClaim?.autoSubmit);
 }
 
+async function applyPendingImage() {
+  const data = await chrome.storage.local.get(PENDING_IMAGE_STORAGE_KEY);
+  const pendingImage = data[PENDING_IMAGE_STORAGE_KEY];
+  const imageUrl = String(pendingImage?.imageUrl || "").trim();
+
+  if (!imageUrl) {
+    return false;
+  }
+
+  setCheckMode("image");
+  setActiveView("check", { scrollToTop: false });
+  setVisible(imageResultBox, false);
+  setResultMode(false);
+  await chrome.storage.local.remove(PENDING_IMAGE_STORAGE_KEY);
+  await setSelectedImageFromUrl(imageUrl);
+  return Boolean(pendingImage?.autoSubmit);
+}
 function parseSseChunk(buffer, onEvent) {
   const events = buffer.split("\n\n");
   const remainder = events.pop() || "";
@@ -598,6 +863,46 @@ async function factCheckText(text, onStatus) {
   return readStreamedFactCheck(response, onStatus);
 }
 
+async function factCheckImage(imageInput, onStatus) {
+  if (!auth.currentUser) {
+    throw new Error("Please sign in before running an image check.");
+  }
+
+  if (!imageInput?.imageBase64 || !imageInput?.mimeType) {
+    throw new Error("Select an image to scan.");
+  }
+
+  onStatus?.("analyzing");
+  const token = await storeFreshToken(auth.currentUser);
+  const response = await fetch(CLOUD_FUNCTION_URL, {
+    method: "POST",
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      imageBase64: imageInput.imageBase64,
+      mimeType: imageInput.mimeType,
+      imageUrl: imageInput.imageUrl || "",
+    }),
+  });
+
+  if (!response.ok) {
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw new Error("The server returned an invalid response.");
+    }
+
+    throw new Error(
+      payload?.error || `Image check failed with status ${response.status}.`,
+    );
+  }
+
+  return readStreamedFactCheck(response, onStatus);
+}
 onAuthStateChanged(auth, async (user) => {
   setVisible(authView, !user);
   setVisible(dashboardView, Boolean(user));
@@ -610,12 +915,18 @@ onAuthStateChanged(auth, async (user) => {
     sessionLabel.textContent = user.email || "Signed in";
     try {
       await storeFreshToken(user);
+      const shouldAutoSubmitImage = await applyPendingImage();
+      if (shouldAutoSubmitImage && !imageCheckBtn.disabled) {
+        await submitImageCheck();
+        return;
+      }
+
       const shouldAutoSubmit = await applyPendingClaim();
       if (shouldAutoSubmit && !factCheckBtn.disabled) {
         await submitFactCheck();
       }
     } catch (error) {
-      showError("Could not refresh your session token. Please sign in again.");
+      showError(error.message || "Could not prepare the pending verification.");
     }
   } else {
     sessionLabel.textContent = "Secure fact-checking";
@@ -684,11 +995,47 @@ async function handleSignOut() {
 
 logoutBtn.addEventListener("click", handleSignOut);
 
+async function submitImageCheck() {
+  showError();
+  setVisible(imageResultBox, false);
+  setVisible(resultBox, false);
+  setResultMode(false);
+  setCheckMode("image");
+
+  if (!selectedImage) {
+    showError("Select an image to scan.");
+    return;
+  }
+
+  setImageCheckBusy(true);
+
+  try {
+    const result = await factCheckImage(selectedImage, setImageCheckStatus);
+    renderImageResult(result);
+  } catch (error) {
+    showError(error.message || "Image verification failed. Try again.");
+  } finally {
+    setImageCheckBusy(false);
+  }
+}
+
+async function handleImageFile(file) {
+  showError();
+  setCheckMode("image");
+
+  try {
+    await setSelectedImageFromFile(file);
+  } catch (error) {
+    showError(error.message || "Could not load image.");
+  }
+}
 async function submitFactCheck() {
   const text = claimText.value.trim();
 
   showError();
+  setCheckMode("text");
   setVisible(resultBox, false);
+  setVisible(imageResultBox, false);
   setResultMode(false);
 
   if (!text) {
@@ -709,6 +1056,43 @@ async function submitFactCheck() {
 }
 
 factCheckBtn.addEventListener("click", submitFactCheck);
+imageCheckBtn.addEventListener("click", submitImageCheck);
+imageDropZone.addEventListener("click", () => imageFileInput.click());
+imageFileInput.addEventListener("change", () => {
+  const [file] = imageFileInput.files || [];
+
+  if (file) {
+    handleImageFile(file);
+  }
+
+  imageFileInput.value = "";
+});
+
+imageDropZone.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  imageDropZone.classList.add("drag-over");
+});
+
+imageDropZone.addEventListener("dragleave", () => {
+  imageDropZone.classList.remove("drag-over");
+});
+
+imageDropZone.addEventListener("drop", (event) => {
+  event.preventDefault();
+  imageDropZone.classList.remove("drag-over");
+  const [file] = event.dataTransfer?.files || [];
+
+  if (file) {
+    handleImageFile(file);
+  }
+});
+
+for (const button of checkModeButtons) {
+  button.addEventListener("click", () => {
+    setCheckMode(button.dataset.checkMode);
+    showError();
+  });
+}
 
 for (const button of navButtons) {
   button.addEventListener("click", () => setActiveView(button.dataset.navView));

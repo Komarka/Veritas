@@ -2,20 +2,27 @@ const DEFAULT_BACKEND_URL =
   "https://us-central1-veritas-c2907.cloudfunctions.net/factCheck";
 const TOKEN_STORAGE_KEY = "veritasAuth";
 const PENDING_CLAIM_STORAGE_KEY = "veritasPendingClaim";
-const MENU_ID = "veritas-check-text";
+const PENDING_IMAGE_STORAGE_KEY = "veritasPendingImage";
+const TEXT_MENU_ID = "veritas-check-text";
+const IMAGE_MENU_ID = "veritas-check-image";
 const POPUP_WIDTH = 560;
 const POPUP_HEIGHT = 760;
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
-      id: MENU_ID,
+      id: TEXT_MENU_ID,
       title: "Check with Veritas AI",
       contexts: ["selection"],
     });
+
+    chrome.contextMenus.create({
+      id: IMAGE_MENU_ID,
+      title: "Check image with Veritas AI",
+      contexts: ["image"],
+    });
   });
 });
-
 async function getAuthContext() {
   const data = await chrome.storage.local.get(TOKEN_STORAGE_KEY);
   const authContext = data[TOKEN_STORAGE_KEY] || {};
@@ -237,27 +244,38 @@ async function streamFactCheck(text, port) {
 }
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId !== MENU_ID || !info.selectionText || !tab?.id) {
+  if (info.menuItemId === TEXT_MENU_ID && info.selectionText && tab?.id) {
+    const selectedText = String(info.selectionText || "").trim();
+
+    chrome.storage.local
+      .set({
+        [PENDING_CLAIM_STORAGE_KEY]: {
+          text: selectedText,
+          autoSubmit: true,
+          updatedAt: Date.now(),
+        },
+      })
+      .then(() => openVeritasPopup())
+      .finally(() => {
+        chrome.tabs.sendMessage(tab.id, {
+          type: "VERITAS_SELECTION_RECEIVED",
+          text: selectedText,
+        });
+      });
     return;
   }
 
-  const selectedText = String(info.selectionText || "").trim();
-
-  chrome.storage.local
-    .set({
-      [PENDING_CLAIM_STORAGE_KEY]: {
-        text: selectedText,
-        autoSubmit: true,
-        updatedAt: Date.now(),
-      },
-    })
-    .then(() => openVeritasPopup())
-    .finally(() => {
-      chrome.tabs.sendMessage(tab.id, {
-        type: "VERITAS_SELECTION_RECEIVED",
-        text: selectedText,
-      });
-    });
+  if (info.menuItemId === IMAGE_MENU_ID && info.srcUrl) {
+    chrome.storage.local
+      .set({
+        [PENDING_IMAGE_STORAGE_KEY]: {
+          imageUrl: info.srcUrl,
+          autoSubmit: true,
+          updatedAt: Date.now(),
+        },
+      })
+      .then(() => openVeritasPopup());
+  }
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
