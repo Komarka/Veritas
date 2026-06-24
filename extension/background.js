@@ -259,13 +259,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
           updatedAt: Date.now(),
         },
       })
-      .then(() => openVeritasPopup())
-      .finally(() => {
-        chrome.tabs.sendMessage(tab.id, {
-          type: "VERITAS_SELECTION_RECEIVED",
-          text: selectedText,
-        });
-      });
+      .then(() => openVeritasPopup());
     return;
   }
 
