@@ -900,8 +900,8 @@ function renderImageResult(payload) {
   setResultMode(true);
   setCheckMode("image");
 }
-async function storeFreshToken(user) {
-  const token = await user.getIdToken(true);
+async function storeFreshToken(user, forceRefresh = false) {
+  const token = await user.getIdToken(forceRefresh);
   await chrome.storage.local.set({
     [LEGACY_TOKEN_STORAGE_KEY]: token,
     [TOKEN_STORAGE_KEY]: {
@@ -1022,33 +1022,47 @@ async function readStreamedFactCheck(response, onStatus) {
 
   return result;
 }
+async function fetchFactCheckRequest(body, forceRefresh = false) {
+  const token = await storeFreshToken(auth.currentUser, forceRefresh);
+  return fetch(CLOUD_FUNCTION_URL, {
+    method: "POST",
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: "Bearer " + token,
+      "Content-Type": "application/json",
+    },
+    body,
+  });
+}
+
+async function parseErrorResponse(response, fallback) {
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    throw new Error("The server returned an invalid response.");
+  }
+
+  throw new Error(payload?.error || fallback);
+}
+
 async function factCheckText(text, onStatus) {
   if (!auth.currentUser) {
     throw new Error("Please sign in before running a fact check.");
   }
 
   onStatus?.("analyzing");
-  const token = await storeFreshToken(auth.currentUser);
-  const response = await fetch(CLOUD_FUNCTION_URL, {
-    method: "POST",
-    headers: {
-      Accept: "text/event-stream",
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ text }),
-  });
+  const body = JSON.stringify({ text });
+  let response = await fetchFactCheckRequest(body);
+
+  if (response.status === 401) {
+    response = await fetchFactCheckRequest(body, true);
+  }
 
   if (!response.ok) {
-    let payload;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      throw new Error("The server returned an invalid response.");
-    }
-
-    throw new Error(
-      payload?.error || `Fact check failed with status ${response.status}.`,
+    await parseErrorResponse(
+      response,
+      "Fact check failed with status " + response.status + ".",
     );
   }
 
@@ -1065,31 +1079,21 @@ async function factCheckImage(imageInput, onStatus) {
   }
 
   onStatus?.("analyzing");
-  const token = await storeFreshToken(auth.currentUser);
-  const response = await fetch(CLOUD_FUNCTION_URL, {
-    method: "POST",
-    headers: {
-      Accept: "text/event-stream",
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      imageBase64: imageInput.imageBase64,
-      mimeType: imageInput.mimeType,
-      imageUrl: imageInput.imageUrl || "",
-    }),
+  const body = JSON.stringify({
+    imageBase64: imageInput.imageBase64,
+    mimeType: imageInput.mimeType,
+    imageUrl: imageInput.imageUrl || "",
   });
+  let response = await fetchFactCheckRequest(body);
+
+  if (response.status === 401) {
+    response = await fetchFactCheckRequest(body, true);
+  }
 
   if (!response.ok) {
-    let payload;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      throw new Error("The server returned an invalid response.");
-    }
-
-    throw new Error(
-      payload?.error || `Image check failed with status ${response.status}.`,
+    await parseErrorResponse(
+      response,
+      "Image check failed with status " + response.status + ".",
     );
   }
 
@@ -1363,3 +1367,4 @@ claimText.addEventListener("keydown", (event) => {
     submitFactCheck();
   }
 });
+

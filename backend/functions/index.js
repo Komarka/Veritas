@@ -8,50 +8,37 @@ const logger = require("firebase-functions/logger");
 
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 const GEMINI_MODEL = "gemini-2.5-flash";
-const MAX_GEMINI_ATTEMPTS = 3;
+const MAX_GEMINI_ATTEMPTS = 2;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const SUPPORTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const SUPPORTED_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
+const GEMINI_RETRY_BACKOFF_MS = 600;
 
 const USER_PROMPT_PREFIX =
   "Fact-check and analyze the following claim. Return verdict, analysis, and facts in the same primary language as the claim. If the claim mixes languages, use the language used most in the claim:";
 
 const TEXT_SYSTEM_INSTRUCTION = [
-  "You are Veritas AI, a fact-checking and media-manipulation analysis backend for a Chrome extension.",
-  "You must use Google Search grounding to find current facts, official data, rebuttals, and cross-checks.",
-  "Return exactly one valid JSON object and no Markdown, no code fences, and no explanatory text outside JSON.",
-  "The response is rendered in a compact intelligence dashboard, so keep verdict short, analysis focused, and facts easy to scan.",
-  "Detect the primary language of the submitted claim and write verdict, analysis, and facts in that same language.",
-  "If the claim is in English, answer in English. If it is in Russian, answer in Russian. If mixed, answer in the dominant language.",
-  "The JSON object must match this shape:",
-  '{"query": "original checked text", "score": 0, "verdict": "short verdict in the input language", "analysis": "detailed logical-fallacy and manipulation analysis in the input language", "facts": "facts found through Google Search in the input language", "sources": ["https://verified-source.example"], "alerts": [{"id": "alert_01", "severity": "warning", "title": "contextual alert title", "description": "short query-specific risk description", "details": "optional deeper AI explanation", "url": "https://optional-counter-evidence.example"}]}',
-  "score must be an integer from 0 to 100, where 100 means fully supported and 0 means false or severe disinformation.",
-  "analysis should be 2 to 4 concise sentences explaining the reasoning and any manipulation, missing context, or logical fallacy.",
-  "facts should be 2 to 4 concise sentences with the strongest verified facts found through search.",
-  "sources should contain 3 to 8 real absolute HTTP/HTTPS URLs used to support the analysis when available.",
-  "alerts must be contextual only to this submitted query, not global notifications.",
-  "Generate 0 to 5 alerts. Use severity critical for direct disinformation, phishing/spoofed domains, or dangerous fabricated claims; warning for emotional manipulation, clickbait, missing context, or distorted quotes; info for helpful source metadata, cache-like heavily checked claims, or publisher bias context.",
-  "Each alert must include severity, title, description, and optional details or url. Use the same language as the verdict where possible.",
+  "You are Veritas AI, a grounded fact-checking backend for a Chrome extension.",
+  "Use Google Search grounding. Return exactly one valid JSON object, no Markdown or prose outside JSON.",
+  "Answer in the submitted claim's primary language. Keep fields concise for a compact dashboard.",
+  "The facts field is required and must be non-empty: write 2-4 concrete verified facts from Google Search, not an empty string.",
+  "JSON shape:",
+  '{"query":"original checked text","score":0,"verdict":"short verdict","analysis":"2-4 concise sentences on logic/manipulation","facts":"2-4 concise grounded facts","sources":["https://verified-source.example"],"alerts":[{"id":"alert_01","severity":"warning","title":"contextual alert title","description":"short query-specific risk","details":"optional deeper explanation","url":"https://optional-counter-evidence.example"}]}',
+  "score is 0-100 where 100 is fully supported. facts must never be blank. sources must be real absolute HTTP/HTTPS URLs when available.",
+  "alerts are only for this query. Generate 0-5 alerts using severity critical, warning, or info.",
 ].join(" ");
 
 const IMAGE_SYSTEM_INSTRUCTION = [
-  "You are Veritas AI, a multimodal image fact-checking and AI/deepfake detection backend for a Chrome extension.",
-  "Analyze the submitted image as both an OCR fact-checker and an image synthesis/deepfake detector.",
-  "Extract visible text, captions, usernames, claims, screenshots, posts, headlines, and other assertions from the image.",
-  "Use Google Search grounding to verify extracted text, visible claims, screenshots, posts, and source context when possible.",
-  "Inspect the image pixels for AI-generation or manipulation markers: unnatural smoothing, warped text, blended letters, distorted logos, inconsistent shadows, face or hand artifacts, compression mismatches, screenshot fabrication, and layout anomalies.",
-  "Return exactly one valid JSON object and no Markdown, no code fences, and no explanatory text outside JSON.",
-  "Use the dominant language found in the image text when possible; otherwise answer in English.",
-  "The JSON object must match this shape:",
-  '{"query": "image or visible text context", "score": 0, "verdict": "short text", "isAiGenerated": false, "aiProbability": 0, "aiAnalysis": "visual/deepfake explanation", "textAnalysis": "OCR and search-grounded fact-check", "sources": ["https://verified-source.example"], "alerts": [{"id": "alert_01", "severity": "critical", "title": "contextual alert title", "description": "short image-specific risk description", "details": "optional deeper AI explanation", "url": "https://optional-counter-evidence.example"}]}',
-  "score must be an integer from 0 to 100 representing overall trust in the image and its claims.",
-  "aiProbability must be an integer from 0 to 100 representing likelihood of AI generation, deepfake, or synthetic fabrication.",
-  "isAiGenerated must be true when AI generation, deepfake, or synthetic fabrication is more likely than not.",
-  "aiAnalysis should explain visual evidence in 2 to 5 concise sentences.",
-  "textAnalysis should explain extracted text and Google Search verification in 2 to 5 concise sentences.",
-  "sources should contain real absolute HTTP/HTTPS URLs used to support the textAnalysis when available.",
-  "alerts must be contextual only to this submitted image/query, not global notifications.",
-  "Generate 0 to 5 alerts. Use severity critical for very high AI/deepfake probability, malicious clone domains, fabricated screenshots, or direct disinformation; warning for visible manipulation, missing context, clickbait or emotional triggers; info for helpful image/source metadata or publisher bias context.",
-  "Each alert must include severity, title, description, and optional details or url. Use the dominant language found in the image when possible.",
+  "You are Veritas AI, a grounded image fact-checking and AI/deepfake detection backend.",
+  "Use Google Search grounding. Inspect visible text, screenshot/post context, and visual manipulation or AI-generation markers.",
+  "Return exactly one valid JSON object, no Markdown or prose outside JSON. Use the image text's dominant language, otherwise English.",
+  "JSON shape:",
+  '{"query":"image or visible text context","score":0,"verdict":"short text","isAiGenerated":false,"aiProbability":0,"aiAnalysis":"2-5 concise visual/deepfake sentences","textAnalysis":"2-5 concise OCR/search-grounded sentences","sources":["https://verified-source.example"],"alerts":[{"id":"alert_01","severity":"critical","title":"contextual alert title","description":"short image-specific risk","details":"optional deeper explanation","url":"https://optional-counter-evidence.example"}]}',
+  "score and aiProbability are integers 0-100. sources must be real absolute HTTP/HTTPS URLs when available.",
+  "alerts are only for this image/query. Generate 0-5 alerts using severity critical, warning, or info.",
 ].join(" ");
 
 if (!admin.apps.length) {
@@ -187,6 +174,32 @@ function normalizeAlerts(parsedAlerts) {
     .slice(0, 5);
 }
 
+function normalizeTextField(value) {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => typeof item === "string" && item.trim())
+      .map((item) => item.trim())
+      .join("\n");
+  }
+
+  return "";
+}
+
+function firstTextField(...values) {
+  for (const value of values) {
+    const normalized = normalizeTextField(value);
+
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return "";
+}
 
 function normalizeFactCheckResult(rawText, groundingUrls) {
   const parsed = extractJsonObject(rawText);
@@ -199,8 +212,15 @@ function normalizeFactCheckResult(rawText, groundingUrls) {
     query: typeof parsed.query === "string" ? parsed.query : "",
     score: normalizeScore(parsed.score),
     verdict: typeof parsed.verdict === "string" ? parsed.verdict : "",
-    analysis: typeof parsed.analysis === "string" ? parsed.analysis : "",
-    facts: typeof parsed.facts === "string" ? parsed.facts : "",
+    analysis: firstTextField(parsed.analysis, parsed.explanation),
+    facts: firstTextField(
+      parsed.facts,
+      parsed.verifiedFacts,
+      parsed.verified_facts,
+      parsed.factSummary,
+      parsed.fact_summary,
+      parsed.evidence,
+    ),
     sources: normalizeSources(parsed.sources, groundingUrls),
     alerts: normalizeAlerts(parsed.alerts),
   };
@@ -224,8 +244,7 @@ function normalizeImageFactCheckResult(rawText, groundingUrls) {
         ? parsed.isAiGenerated
         : aiProbability >= 50,
     aiProbability,
-    aiAnalysis:
-      typeof parsed.aiAnalysis === "string" ? parsed.aiAnalysis : "",
+    aiAnalysis: typeof parsed.aiAnalysis === "string" ? parsed.aiAnalysis : "",
     textAnalysis:
       typeof parsed.textAnalysis === "string" ? parsed.textAnalysis : "",
     sources: normalizeSources(parsed.sources, groundingUrls),
@@ -327,7 +346,7 @@ async function generateWithRetry(request) {
         nextAttempt: attempt + 1,
         error: error.message,
       });
-      await wait(900 * attempt);
+      await wait(GEMINI_RETRY_BACKOFF_MS * attempt);
     }
   }
 
@@ -338,8 +357,9 @@ async function generateWithRetry(request) {
   return response;
 }
 
-async function generateFactCheck(text, progress) {
+async function generateFactCheck(text, progress, timings = {}) {
   progress?.("searching");
+  const geminiStartedAt = Date.now();
 
   const response = await generateWithRetry({
     model: GEMINI_MODEL,
@@ -348,7 +368,7 @@ async function generateFactCheck(text, progress) {
         role: "user",
         parts: [
           {
-            text: `${USER_PROMPT_PREFIX}\n\n${text}`,
+            text: USER_PROMPT_PREFIX + "\n\n" + text,
           },
         ],
       },
@@ -362,9 +382,10 @@ async function generateFactCheck(text, progress) {
       systemInstruction: TEXT_SYSTEM_INSTRUCTION,
     },
   });
+  timings.geminiMs = Date.now() - geminiStartedAt;
 
   progress?.("forming_verdict");
-
+  const normalizationStartedAt = Date.now();
   const rawText = response.text;
 
   if (!rawText) {
@@ -372,18 +393,21 @@ async function generateFactCheck(text, progress) {
   }
 
   const groundingUrls = collectGroundingUrls(response);
-  return normalizeFactCheckResult(rawText, groundingUrls);
+  const result = normalizeFactCheckResult(rawText, groundingUrls);
+  timings.normalizationMs = Date.now() - normalizationStartedAt;
+  return result;
 }
 
-async function generateImageFactCheck(imageInput, progress) {
+async function generateImageFactCheck(imageInput, progress, timings = {}) {
   progress?.("searching");
 
   const imagePrompt = [
-    "Analyze this image for visual authenticity and fact-check any visible text or claim.",
+    "Analyze this image for authenticity and fact-check visible claims.",
     imageInput.imageUrl
-      ? `Original image URL for context: ${imageInput.imageUrl}`
-      : "No original image URL was provided.",
+      ? "Source image URL: " + imageInput.imageUrl
+      : "No source image URL was provided.",
   ].join("\n\n");
+  const geminiStartedAt = Date.now();
 
   const response = await generateWithRetry({
     model: GEMINI_MODEL,
@@ -412,9 +436,10 @@ async function generateImageFactCheck(imageInput, progress) {
       systemInstruction: IMAGE_SYSTEM_INSTRUCTION,
     },
   });
+  timings.geminiMs = Date.now() - geminiStartedAt;
 
   progress?.("forming_verdict");
-
+  const normalizationStartedAt = Date.now();
   const rawText = response.text;
 
   if (!rawText) {
@@ -422,7 +447,9 @@ async function generateImageFactCheck(imageInput, progress) {
   }
 
   const groundingUrls = collectGroundingUrls(response);
-  return normalizeImageFactCheckResult(rawText, groundingUrls);
+  const result = normalizeImageFactCheckResult(rawText, groundingUrls);
+  timings.normalizationMs = Date.now() - normalizationStartedAt;
+  return result;
 }
 
 function getRequestPayload(req) {
@@ -487,6 +514,9 @@ exports.factCheck = onRequest(
   },
   async (req, res) => {
     const streamResponse = wantsEventStream(req);
+    const requestStartedAt = Date.now();
+    const timings = {};
+    let payloadType = "unknown";
 
     try {
       if (req.method === "OPTIONS") {
@@ -500,16 +530,34 @@ exports.factCheck = onRequest(
         return;
       }
 
+      const authStartedAt = Date.now();
       const authenticatedUser = await authenticateRequest(req);
+      timings.authMs = Date.now() - authStartedAt;
 
       if (!authenticatedUser) {
+        logger.info("factCheck timings", {
+          outcome: "unauthorized",
+          requestType: payloadType,
+          stream: streamResponse,
+          totalMs: Date.now() - requestStartedAt,
+          ...timings,
+        });
         res.status(401).json({ error: "Unauthorized." });
         return;
       }
 
+      const payloadStartedAt = Date.now();
       const payload = getRequestPayload(req);
+      timings.payloadValidationMs = Date.now() - payloadStartedAt;
 
       if (!payload) {
+        logger.info("factCheck timings", {
+          outcome: "invalid_payload",
+          requestType: payloadType,
+          stream: streamResponse,
+          totalMs: Date.now() - requestStartedAt,
+          ...timings,
+        });
         res.status(400).json({
           error:
             "Request body must include either a non-empty text field or imageBase64 with mimeType.",
@@ -517,10 +565,22 @@ exports.factCheck = onRequest(
         return;
       }
 
+      payloadType = payload.type;
+
+      const logTimings = (outcome) => {
+        logger.info("factCheck timings", {
+          outcome,
+          requestType: payloadType,
+          stream: streamResponse,
+          totalMs: Date.now() - requestStartedAt,
+          ...timings,
+        });
+      };
+
       const generate = (progress) =>
         payload.type === "image"
-          ? generateImageFactCheck(payload, progress)
-          : generateFactCheck(payload.text, progress);
+          ? generateImageFactCheck(payload, progress, timings)
+          : generateFactCheck(payload.text, progress, timings);
 
       if (streamResponse) {
         startEventStream(res);
@@ -531,12 +591,15 @@ exports.factCheck = onRequest(
             sendStreamEvent(res, { status });
           });
           sendStreamEvent(res, { result, resultType: payload.type });
+          logTimings("success");
           res.end();
         } catch (error) {
           logger.warn("factCheck stream failed", {
             error: error.message,
             stack: error.stack,
           });
+          timings.errorStatus = publicErrorStatus(error);
+          logTimings("error");
           sendStreamEvent(res, {
             error: publicErrorMessage(error),
             status: "error",
@@ -547,11 +610,15 @@ exports.factCheck = onRequest(
       }
 
       const result = await generate();
+      logTimings("success");
       res.status(200).json(result);
     } catch (error) {
       logger.warn("factCheck failed", {
         error: error.message,
         stack: error.stack,
+        requestType: payloadType,
+        totalMs: Date.now() - requestStartedAt,
+        ...timings,
       });
 
       if (error?.statusCode) {
@@ -565,3 +632,4 @@ exports.factCheck = onRequest(
     }
   },
 );
+
