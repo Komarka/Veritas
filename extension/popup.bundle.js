@@ -7495,13 +7495,15 @@
   var scoreRing = document.querySelector("#score-ring");
   var confidenceChip = document.querySelector("#confidence-chip");
   var sourceCountEl = document.querySelector("#source-count");
-  var riskCountEl = document.querySelector("#risk-count");
+  var alertsBadgeEl = document.querySelector("#alerts-badge");
   var analysisEl = document.querySelector("#analysis");
   var factsEl = document.querySelector("#facts");
   var sourcesEl = document.querySelector("#sources");
   var sourceWeightTitleEl = document.querySelector("#source-weight-title");
   var sourceWeightChartEl = document.querySelector("#source-weight-chart");
   var sourceWeightLabelsEl = document.querySelector("#source-weight-labels");
+  var alertsSummaryEl = document.querySelector("#alerts-summary");
+  var alertsContainerEl = document.querySelector("#alerts-container");
   var dashboardPanes = document.querySelectorAll("[data-view]");
   var navButtons = document.querySelectorAll("[data-nav-view]");
   var sourceModeButtons = document.querySelectorAll("[data-source-mode]");
@@ -7523,6 +7525,7 @@
   var imageAiAnalysisEl = document.querySelector("#image-ai-analysis");
   var imageTextAnalysisEl = document.querySelector("#image-text-analysis");
   var selectedImage = null;
+  var unreadAlerts = [];
   function setVisible(element, isVisible) {
     element.classList.toggle("hidden", !isVisible);
   }
@@ -7535,6 +7538,10 @@
       const isTarget = button.dataset.navView === viewName;
       button.classList.toggle("active", isTarget);
       button.setAttribute("aria-current", isTarget ? "page" : "false");
+    }
+    if (viewName === "alerts") {
+      unreadAlerts = [];
+      updateAlertsBadge(unreadAlerts);
     }
     if (options.scrollToTop !== false) {
       appShell.scrollTo({ top: 0, behavior: "smooth" });
@@ -7643,6 +7650,9 @@
     }
   }
   function setResultMode(hasResult) {
+    if (!hasResult) {
+      updateAlertsBadge([]);
+    }
     dashboardView.classList.toggle("has-result", hasResult);
     for (const element of resultOnlyEls) {
       setVisible(element, hasResult);
@@ -7771,9 +7781,6 @@
     if (score >= 40) return "Moderate Caution";
     return "High Risk Alert";
   }
-  function riskCount(score) {
-    return Math.max(1, Math.ceil((100 - score) / 10));
-  }
   function clampScore(value, fallback = 0) {
     const score = Number(value);
     return Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : fallback;
@@ -7854,8 +7861,146 @@
     scoreRing.style.stroke = color;
     scoreRing.style.strokeDashoffset = String(offset);
   }
+  var ALERT_CONFIG = {
+    critical: {
+      label: "CRITICAL",
+      icon: "!",
+      summary: "Immediate Intervention Advised"
+    },
+    warning: {
+      label: "WARNING",
+      icon: "?",
+      summary: "Context Review Required"
+    },
+    info: {
+      label: "INFO",
+      icon: "i",
+      summary: "Source Metadata"
+    }
+  };
+  function normalizeAlerts(payload) {
+    const rawAlerts = Array.isArray(payload?.alerts) ? payload.alerts : [];
+    return rawAlerts.map((alert, index) => {
+      if (!alert || typeof alert !== "object") {
+        return null;
+      }
+      const severity = String(alert.severity || "info").toLowerCase();
+      const title = typeof alert.title === "string" ? alert.title.trim() : "";
+      const description = typeof alert.description === "string" ? alert.description.trim() : "";
+      if (!ALERT_CONFIG[severity] || !title || !description) {
+        return null;
+      }
+      return {
+        id: typeof alert.id === "string" && alert.id.trim() ? alert.id.trim() : `alert_${index + 1}`,
+        severity,
+        title,
+        description,
+        details: typeof alert.details === "string" ? alert.details.trim() : "",
+        url: typeof alert.url === "string" && alert.url.startsWith("http") ? alert.url.trim() : ""
+      };
+    }).filter(Boolean);
+  }
+  function updateAlertsBadge(alerts) {
+    if (!alertsBadgeEl) {
+      return;
+    }
+    const count = alerts.length;
+    const hasCritical = alerts.some((alert) => alert.severity === "critical");
+    const hasWarning = alerts.some((alert) => alert.severity === "warning");
+    alertsBadgeEl.classList.toggle("hidden", count === 0);
+    alertsBadgeEl.classList.toggle("critical", hasCritical);
+    alertsBadgeEl.classList.toggle("warning", !hasCritical && hasWarning);
+    alertsBadgeEl.textContent = count > 99 ? "99+" : String(count);
+    alertsBadgeEl.setAttribute("aria-label", String(count) + " alerts");
+  }
+  function detectAlertLanguage(value) {
+    const text = String(value || "");
+    if (/[\u0406\u0456\u0404\u0454\u0407\u0457\u0490\u0491]/.test(text)) {
+      return "uk";
+    }
+    const cyrillicCount = (text.match(/[\u0400-\u04ff]/g) || []).length;
+    const latinCount = (text.match(/[A-Za-z]/g) || []).length;
+    return cyrillicCount > latinCount ? "ru" : "en";
+  }
+  function emptyAlertsMessage(languageContext) {
+    switch (detectAlertLanguage(languageContext)) {
+      case "uk":
+        return "\u0421\u0438\u0433\u043D\u0430\u043B\u0456\u0432 \u0437\u0430\u0433\u0440\u043E\u0437\u0438 \u043D\u0435 \u0432\u0438\u044F\u0432\u043B\u0435\u043D\u043E. \u0422\u0435\u043A\u0441\u0442 \u0447\u0438\u0441\u0442\u0438\u0439.";
+      case "ru":
+        return "\u0421\u0438\u0433\u043D\u0430\u043B\u043E\u0432 \u0443\u0433\u0440\u043E\u0437\u044B \u043D\u0435 \u043E\u0431\u043D\u0430\u0440\u0443\u0436\u0435\u043D\u043E. \u0422\u0435\u043A\u0441\u0442 \u0447\u0438\u0441\u0442.";
+      default:
+        return "No threat signals detected. The text is clean.";
+    }
+  }
+  function renderAlerts(alerts, languageContext = "") {
+    unreadAlerts = [...alerts];
+    updateAlertsBadge(unreadAlerts);
+    alertsContainerEl.replaceChildren();
+    if (alerts.length === 0) {
+      alertsSummaryEl.textContent = "No Threat Signals";
+      const empty = document.createElement("div");
+      empty.className = "alerts-empty-state";
+      empty.textContent = emptyAlertsMessage(languageContext);
+      alertsContainerEl.append(empty);
+      return;
+    }
+    const criticalCount = alerts.filter(
+      (alert) => alert.severity === "critical"
+    ).length;
+    alertsSummaryEl.textContent = criticalCount ? `${criticalCount} Critical / ${alerts.length} Total` : `${alerts.length} Context Signals`;
+    for (const alert of alerts) {
+      const config = ALERT_CONFIG[alert.severity];
+      const card = document.createElement("article");
+      const header = document.createElement("div");
+      const icon = document.createElement("span");
+      const body = document.createElement("div");
+      const severity = document.createElement("span");
+      const title = document.createElement("h4");
+      const description = document.createElement("p");
+      const toggle = document.createElement("button");
+      const details = document.createElement("div");
+      const detailsText = document.createElement("p");
+      card.className = `alert-card ${alert.severity}`;
+      header.className = "alert-card-header";
+      icon.className = "alert-icon";
+      icon.textContent = config.icon;
+      body.className = "alert-card-copy";
+      severity.className = "alert-severity";
+      severity.textContent = `${config.label} | ${config.summary}`;
+      title.textContent = alert.title;
+      description.textContent = alert.description;
+      toggle.className = "alert-toggle";
+      toggle.type = "button";
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.textContent = "Info";
+      details.className = "alert-details";
+      details.hidden = true;
+      detailsText.textContent = alert.details || alert.description;
+      details.append(detailsText);
+      if (alert.url) {
+        const link = document.createElement("a");
+        link.href = alert.url;
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.textContent = "Open counter-evidence";
+        details.append(link);
+      }
+      toggle.addEventListener("click", () => {
+        const isExpanded = toggle.getAttribute("aria-expanded") === "true";
+        toggle.setAttribute("aria-expanded", String(!isExpanded));
+        toggle.textContent = isExpanded ? "Info" : "Collapse";
+        details.hidden = isExpanded;
+        card.classList.toggle("expanded", !isExpanded);
+      });
+      body.append(severity, title, description);
+      header.append(icon, body, toggle);
+      card.append(header, details);
+      alertsContainerEl.append(card);
+    }
+  }
   function normalizeResult(payload) {
     return {
+      query: typeof payload?.query === "string" ? payload.query : "",
       score: Number.isFinite(Number(payload?.score)) ? Math.max(0, Math.min(100, Number(payload.score))) : 0,
       verdict: typeof payload?.verdict === "string" ? payload.verdict : "No verdict",
       analysis: typeof payload?.analysis === "string" ? payload.analysis : "Analysis is unavailable.",
@@ -7863,6 +8008,7 @@
       sources: Array.isArray(payload?.sources) ? payload.sources.filter(
         (source) => typeof source === "string" && source.startsWith("http")
       ) : [],
+      alerts: normalizeAlerts(payload),
       chartData: null
     };
   }
@@ -7914,8 +8060,10 @@
     confidenceChip.style.color = color;
     confidenceChip.style.borderColor = color;
     sourceCountEl.textContent = String(result.sources.length);
-    riskCountEl.textContent = String(riskCount(result.score));
-    riskCountEl.style.color = color;
+    renderAlerts(
+      result.alerts,
+      result.query || claimText.value || result.verdict || result.analysis || result.facts
+    );
     analysisEl.textContent = result.analysis;
     factsEl.textContent = result.facts;
     sourcesEl.replaceChildren();
@@ -7944,6 +8092,7 @@
   function normalizeImageResult(payload) {
     const aiProbability = Number.isFinite(Number(payload?.aiProbability)) ? Math.max(0, Math.min(100, Number(payload.aiProbability))) : 0;
     return {
+      query: typeof payload?.query === "string" ? payload.query : "",
       score: Number.isFinite(Number(payload?.score)) ? Math.max(0, Math.min(100, Number(payload.score))) : 0,
       verdict: typeof payload?.verdict === "string" ? payload.verdict : "No verdict",
       isAiGenerated: typeof payload?.isAiGenerated === "boolean" ? payload.isAiGenerated : aiProbability >= 50,
@@ -7953,6 +8102,7 @@
       sources: Array.isArray(payload?.sources) ? payload.sources.filter(
         (source) => typeof source === "string" && source.startsWith("http")
       ) : [],
+      alerts: normalizeAlerts(payload),
       chartData: null
     };
   }
@@ -7993,8 +8143,10 @@
     confidenceChip.style.color = result.isAiGenerated ? aiColor : color;
     confidenceChip.style.borderColor = result.isAiGenerated ? aiColor : color;
     sourceCountEl.textContent = String(result.sources.length);
-    riskCountEl.textContent = String(Math.max(1, Math.ceil(result.aiProbability / 10)));
-    riskCountEl.style.color = aiColor;
+    renderAlerts(
+      result.alerts,
+      result.query || result.verdict || result.textAnalysis || result.aiAnalysis
+    );
     renderSourcesList(result.sources);
     renderSourceWeightChart(result.chartData);
     setVisible(imageResultBox, true);

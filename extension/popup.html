@@ -161,10 +161,6 @@
                 <span>Sources</span>
                 <strong id="source-count">0</strong>
               </div>
-              <div class="metric-card">
-                <span>Risks</span>
-                <strong id="risk-count">0</strong>
-              </div>
             </div>
           </section>
 
@@ -386,12 +382,12 @@
         </div>
 
         <div class="dashboard-pane result-only hidden" data-view="alerts">
-          <section class="dash-card empty-view-card">
+          <section class="dash-card alerts-view-card">
             <div class="section-heading">
-              <h3>Alerts</h3>
-              <span>Risk Signals</span>
+              <h3>Threat Intelligence</h3>
+              <span id="alerts-summary">Active Scan</span>
             </div>
-            <p class="muted">No separate alerts for this claim.</p>
+            <div id="alerts-container" class="alerts-container" aria-live="polite"></div>
           </section>
         </div>
 
@@ -433,6 +429,7 @@
               <path d="M10 21h4" />
             </svg>
             <span>Alerts</span>
+            <span class="nav-badge hidden" id="alerts-badge" aria-label="0 alerts">0</span>
           </button>
           <button type="button" data-nav-view="account">
             <svg viewBox="0 0 24 24" aria-hidden="true">

@@ -23,11 +23,14 @@ const TEXT_SYSTEM_INSTRUCTION = [
   "Detect the primary language of the submitted claim and write verdict, analysis, and facts in that same language.",
   "If the claim is in English, answer in English. If it is in Russian, answer in Russian. If mixed, answer in the dominant language.",
   "The JSON object must match this shape:",
-  '{"score": 0, "verdict": "short verdict in the input language", "analysis": "detailed logical-fallacy and manipulation analysis in the input language", "facts": "facts found through Google Search in the input language", "sources": ["https://verified-source.example"]}',
+  '{"query": "original checked text", "score": 0, "verdict": "short verdict in the input language", "analysis": "detailed logical-fallacy and manipulation analysis in the input language", "facts": "facts found through Google Search in the input language", "sources": ["https://verified-source.example"], "alerts": [{"id": "alert_01", "severity": "warning", "title": "contextual alert title", "description": "short query-specific risk description", "details": "optional deeper AI explanation", "url": "https://optional-counter-evidence.example"}]}',
   "score must be an integer from 0 to 100, where 100 means fully supported and 0 means false or severe disinformation.",
   "analysis should be 2 to 4 concise sentences explaining the reasoning and any manipulation, missing context, or logical fallacy.",
   "facts should be 2 to 4 concise sentences with the strongest verified facts found through search.",
   "sources should contain 3 to 8 real absolute HTTP/HTTPS URLs used to support the analysis when available.",
+  "alerts must be contextual only to this submitted query, not global notifications.",
+  "Generate 0 to 5 alerts. Use severity critical for direct disinformation, phishing/spoofed domains, or dangerous fabricated claims; warning for emotional manipulation, clickbait, missing context, or distorted quotes; info for helpful source metadata, cache-like heavily checked claims, or publisher bias context.",
+  "Each alert must include severity, title, description, and optional details or url. Use the same language as the verdict where possible.",
 ].join(" ");
 
 const IMAGE_SYSTEM_INSTRUCTION = [
@@ -39,13 +42,16 @@ const IMAGE_SYSTEM_INSTRUCTION = [
   "Return exactly one valid JSON object and no Markdown, no code fences, and no explanatory text outside JSON.",
   "Use the dominant language found in the image text when possible; otherwise answer in English.",
   "The JSON object must match this shape:",
-  '{"score": 0, "verdict": "short text", "isAiGenerated": false, "aiProbability": 0, "aiAnalysis": "visual/deepfake explanation", "textAnalysis": "OCR and search-grounded fact-check", "sources": ["https://verified-source.example"]}',
+  '{"query": "image or visible text context", "score": 0, "verdict": "short text", "isAiGenerated": false, "aiProbability": 0, "aiAnalysis": "visual/deepfake explanation", "textAnalysis": "OCR and search-grounded fact-check", "sources": ["https://verified-source.example"], "alerts": [{"id": "alert_01", "severity": "critical", "title": "contextual alert title", "description": "short image-specific risk description", "details": "optional deeper AI explanation", "url": "https://optional-counter-evidence.example"}]}',
   "score must be an integer from 0 to 100 representing overall trust in the image and its claims.",
   "aiProbability must be an integer from 0 to 100 representing likelihood of AI generation, deepfake, or synthetic fabrication.",
   "isAiGenerated must be true when AI generation, deepfake, or synthetic fabrication is more likely than not.",
   "aiAnalysis should explain visual evidence in 2 to 5 concise sentences.",
   "textAnalysis should explain extracted text and Google Search verification in 2 to 5 concise sentences.",
   "sources should contain real absolute HTTP/HTTPS URLs used to support the textAnalysis when available.",
+  "alerts must be contextual only to this submitted image/query, not global notifications.",
+  "Generate 0 to 5 alerts. Use severity critical for very high AI/deepfake probability, malicious clone domains, fabricated screenshots, or direct disinformation; warning for visible manipulation, missing context, clickbait or emotional triggers; info for helpful image/source metadata or publisher bias context.",
+  "Each alert must include severity, title, description, and optional details or url. Use the dominant language found in the image when possible.",
 ].join(" ");
 
 if (!admin.apps.length) {
@@ -135,6 +141,52 @@ function normalizeScore(value) {
   const score = Number.parseInt(value, 10);
   return Number.isInteger(score) ? Math.min(100, Math.max(0, score)) : 0;
 }
+const ALERT_SEVERITIES = new Set(["critical", "warning", "info"]);
+
+function normalizeAlerts(parsedAlerts) {
+  if (!Array.isArray(parsedAlerts)) {
+    return [];
+  }
+
+  return parsedAlerts
+    .map((alert, index) => {
+      if (!alert || typeof alert !== "object" || Array.isArray(alert)) {
+        return null;
+      }
+
+      const severity = String(alert.severity || "info").toLowerCase();
+      const title = typeof alert.title === "string" ? alert.title.trim() : "";
+      const description =
+        typeof alert.description === "string" ? alert.description.trim() : "";
+
+      if (!ALERT_SEVERITIES.has(severity) || !title || !description) {
+        return null;
+      }
+
+      const id =
+        typeof alert.id === "string" && alert.id.trim()
+          ? alert.id.trim().replace(/[^a-zA-Z0-9_-]/g, "_")
+          : `alert_${String(index + 1).padStart(2, "0")}`;
+      const details =
+        typeof alert.details === "string" ? alert.details.trim() : "";
+      const url =
+        typeof alert.url === "string" && alert.url.startsWith("http")
+          ? alert.url.trim()
+          : "";
+
+      return {
+        id,
+        severity,
+        title,
+        description,
+        details,
+        url,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
 
 function normalizeFactCheckResult(rawText, groundingUrls) {
   const parsed = extractJsonObject(rawText);
@@ -144,11 +196,13 @@ function normalizeFactCheckResult(rawText, groundingUrls) {
   }
 
   return {
+    query: typeof parsed.query === "string" ? parsed.query : "",
     score: normalizeScore(parsed.score),
     verdict: typeof parsed.verdict === "string" ? parsed.verdict : "",
     analysis: typeof parsed.analysis === "string" ? parsed.analysis : "",
     facts: typeof parsed.facts === "string" ? parsed.facts : "",
     sources: normalizeSources(parsed.sources, groundingUrls),
+    alerts: normalizeAlerts(parsed.alerts),
   };
 }
 
@@ -162,6 +216,7 @@ function normalizeImageFactCheckResult(rawText, groundingUrls) {
   const aiProbability = normalizeScore(parsed.aiProbability);
 
   return {
+    query: typeof parsed.query === "string" ? parsed.query : "",
     score: normalizeScore(parsed.score),
     verdict: typeof parsed.verdict === "string" ? parsed.verdict : "",
     isAiGenerated:
@@ -174,6 +229,7 @@ function normalizeImageFactCheckResult(rawText, groundingUrls) {
     textAnalysis:
       typeof parsed.textAnalysis === "string" ? parsed.textAnalysis : "",
     sources: normalizeSources(parsed.sources, groundingUrls),
+    alerts: normalizeAlerts(parsed.alerts),
   };
 }
 
